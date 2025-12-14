@@ -4,14 +4,17 @@ import { logInfo, logWarn } from "./utils/logger.js";
 
 const DEFAULT_DAILY = {
   image: 0,
-  video: 0
+  video: 0,
+  ppt: 0,
+  ppt_slides: 0
 };
 
 const TIER_LIMITS = {
-  0: { image: 5, video: 0 },     // free
-  1: { image: 20, video: 2 },    // basic
-  2: { image: 100, video: 10 },  // pro
-  3: { image: 999999, video: 999999 } // ultra/unlimited
+  0: { image: 2, video: 1, ppt: 3, ppt_slides: 15 },
+  1: { image: 20, video: 2, ppt: 999999, ppt_slides: 999999 },
+  2: { image: 100, video: 10, ppt: 999999, ppt_slides: 999999 },
+  3: { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 },
+  4: { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 }
 };
 
 function todayKey() {

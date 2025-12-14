@@ -127,6 +127,7 @@ export async function createPPT(userPrompt, slug) {
     return {
       ppt: filename,
       download_url: downloadUrl,
+      num_slides: n_slides,
       // Pass other fields returned by the API if they exist (e.g., presentation_id, credits_consumed)
       ...result 
     };

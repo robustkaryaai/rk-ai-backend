@@ -11,6 +11,7 @@ import { handleMusic } from "./modules/musicPlayer.js";
 import { callGemini } from "./services/gemini.js";
 import { getSlugStorageUsed } from "./services/supabaseClient.js";
 import { transcribeMP3 } from "./services/assemblyai.js";
+import { checkAndConsume } from "./limitManager.js";
 
 /* ---------------- MCU PASS THROUGH ---------------- */
 const PASS_THROUGH = [
@@ -62,8 +63,12 @@ function buildTaskReply(intent, parameters = {}) {
 export async function handleIntents(slug, intents, context = {}) {
   const results = [];
 
-  const tier = context.device?.tier || "free";
-  const storageLimitMB = TIER_STORAGE[tier] || TIER_STORAGE.free;
+  const tierNum = context.device?.subscription === "true"
+    ? Number(context.device?.["subscription-tier"] || 0)
+    : 0;
+  const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio" };
+  const tierName = tierMap[tierNum] || "free";
+  const storageLimitMB = TIER_STORAGE[tierName] || TIER_STORAGE.free;
 
   for (const task of intents) {
     const { intent, parameters = {} } = task;
@@ -93,7 +98,15 @@ export async function handleIntents(slug, intents, context = {}) {
 
       /* ---------------- IMAGE ---------------- */
       if (intent === "image") {
-        await generateImage(userPrompt, slug, tier, storageLimitMB);
+        const check = await checkAndConsume(slug, tierNum, "image", 1);
+        if (!check.ok) {
+          const reply = "❌ Daily image limit reached";
+          await appendChat(slug, userPrompt, reply);
+          results.push(reply);
+          continue;
+        }
+
+        await generateImage(userPrompt, slug, tierName, storageLimitMB);
         const reply = buildTaskReply(intent, parameters);
         await appendChat(slug, userPrompt, reply);
         results.push(reply);
@@ -102,7 +115,15 @@ export async function handleIntents(slug, intents, context = {}) {
 
       /* ---------------- VIDEO ---------------- */
       if (intent === "video") {
-        await generateVideo(userPrompt, slug, tier, storageLimitMB);
+        const check = await checkAndConsume(slug, tierNum, "video", 1);
+        if (!check.ok) {
+          const reply = "❌ Daily video limit reached";
+          await appendChat(slug, userPrompt, reply);
+          results.push(reply);
+          continue;
+        }
+
+        await generateVideo(userPrompt, slug, tierName, storageLimitMB);
         const reply = buildTaskReply(intent, parameters);
         await appendChat(slug, userPrompt, reply);
         results.push(reply);
@@ -111,8 +132,7 @@ export async function handleIntents(slug, intents, context = {}) {
 
       /* ---------------- DOCX ---------------- */
       if (intent === "docx") {
-        // Generate and save the docx content, but return a concise status message to frontend
-        await createDocx(userPrompt, slug, tier, storageLimitMB);
+        await createDocx(userPrompt, slug, tierName, storageLimitMB);
         const reply = buildTaskReply(intent, parameters);
         await appendChat(slug, userPrompt, reply);
         results.push(reply);
@@ -121,11 +141,28 @@ export async function handleIntents(slug, intents, context = {}) {
 
       /* ---------------- PPT ---------------- */
       if (intent === "ppt") {
-        // Generate and save the ppt content, but return a concise status message to frontend
-        await createPPT(userPrompt, slug, tier, storageLimitMB);
+        const checkPpt = await checkAndConsume(slug, tierNum, "ppt", 1);
+        if (!checkPpt.ok) {
+          const reply = "❌ Daily presentation limit reached";
+          await appendChat(slug, userPrompt, reply);
+          results.push(reply);
+          continue;
+        }
+
+        const resp = await createPPT(userPrompt, slug, tierName, storageLimitMB);
         const reply = buildTaskReply(intent, parameters);
         await appendChat(slug, userPrompt, reply);
         results.push(reply);
+
+        const slides = Number(resp?.num_slides || 0);
+        if (slides > 0) {
+          const checkSlides = await checkAndConsume(slug, tierNum, "ppt_slides", slides);
+          if (!checkSlides.ok) {
+            const warn = `⚠️ Slide limit reached for today (${checkSlides.allowed}). Presentation generated.`;
+            await appendChat(slug, userPrompt, warn);
+            results.push(warn);
+          }
+        }
         continue;
       }
 

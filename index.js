@@ -1,4 +1,3 @@
-// index.js
 import express from "express";
 import dotenv from "dotenv";
 import multer from "multer";
@@ -9,7 +8,7 @@ import { logInfo, logError } from "./utils/logger.js";
 import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug } from "./services/appwriteClient.js";
 import { db } from "./services/appwriteClient.js";
 import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
-import { ensureLimitFile, checkAndConsume } from "./limitManager.js";
+import { ensureLimitFile } from "./limitManager.js";
 import { callGemini } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
 import { transcribeMP3 } from "./services/assemblyai.js";
@@ -207,23 +206,7 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
       intents = [{ intent: "chat", parameters: { prompt: transcription } }];
     }
 
-    // ✅ Enforce limits
-    for (const i of intents) {
-      if (i.intent === "image") {
-        const check = await checkAndConsume(slug, tier, "image", 1);
-        if (!check.ok) {
-          i.intent = "limit_reached";
-          i.parameters = { extra: "Daily image limit reached" };
-        }
-      }
-
-      if (i.intent === "video" && tier < 1) {
-        i.intent = "subscription_required";
-        i.parameters = {
-          extra: "Video generation requires subscription"
-        };
-      }
-    }
+    
 
   // ✅ Save user input (atomic placeholder) - returns the index for later AI update
   const appended = await appendUser(slug, `User: ${transcription}`);
