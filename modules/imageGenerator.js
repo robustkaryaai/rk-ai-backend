@@ -4,10 +4,8 @@ import { generateFilename } from "../utils/fileNaming.js";
 
 // --- Configuration ---
 const DEPIN_BASE_URL = "https://depin.gamercoin.com";
-// **IMPORTANT**: Load the API key securely from environment variables
 const DEPIN_API_KEY = process.env.DEPIN_API_KEY; 
 
-// Check if the API Key is available immediately (Good practice)
 if (!DEPIN_API_KEY) {
     throw new Error("DEPIN_API_KEY environment variable is not set. Please set it to your DePIN API key.");
 }
@@ -15,25 +13,26 @@ if (!DEPIN_API_KEY) {
 /**
  * Generates an image using the external DePIN API (GamerCoin), 
  * downloads the result, and saves it to a specified storage slug.
+ * * **UPDATED SIGNATURE** to accept tier and storageLimitMB
  *
  * @param {string} prompt - The text prompt for image generation.
  * @param {string} slug - The identifier for the storage location (e.g., Supabase bucket path).
+ * @param {string} tier - The user's service tier (e.g., 'free', 'pro').
+ * @param {number} storageLimitMB - The user's current storage limit in megabytes.
  * @returns {Promise<{image: string}>} - An object containing the saved filename.
  */
-export async function generateImage(prompt, slug) {
+export async function generateImage(prompt, slug, tier, storageLimitMB) {
   // 1. **Request Image Generation**
   // ---------------------------------
   console.log(`Sending image generation request for prompt: "${prompt}"`);
 
-  // Define API payload based on DePIN API documentation
+  // Optional: You could use the 'tier' or 'storageLimitMB' here to adjust payload
+  // e.g., using a lower resolution for the 'free' tier.
   const payload = {
-    // You should use the highest available model ID for best results, e.g., 20.
-    // Assuming model_id is used to specify the model (e.g., SDXL/Dall-E style)
-    model_id: 20, 
+    model_id: 20, // Example model ID
     prompt: prompt,
-    // Add other optional parameters as needed, e.g., negative_prompt, width, height
     image_count: 1, 
-    style_id: 11 // Example style ID (e.g., 11 for Photorealistic)
+    style_id: 11 // Example style ID
   };
 
   const generateResponse = await fetch(`${DEPIN_BASE_URL}/v1/api/image/generate`, {
@@ -54,15 +53,14 @@ export async function generateImage(prompt, slug) {
   console.log("Image generation response received.");
 
   // 2. **Process Response and Get Image URL**
-  // The DePIN documentation shows a response structure where the image URLs 
-  // are directly available under 'response.result.images'.
+  // ------------------------------------------
   const imageUrls = generateData?.response?.result?.images;
   
   if (!imageUrls || imageUrls.length === 0) {
       throw new Error(`DePIN API did not return any image URLs. Full response: ${JSON.stringify(generateData)}`);
   }
 
-  const imageUrl = imageUrls[0].url; // Assuming we only need the first image
+  const imageUrl = imageUrls[0].url; 
   console.log(`Image URL received: ${imageUrl}`);
 
   // 3. **Download Image**
@@ -74,20 +72,16 @@ export async function generateImage(prompt, slug) {
     throw new Error(`Failed to download image from ${imageUrl}: ${downloadResponse.status}`);
   }
 
-  // Convert the response stream to an ArrayBuffer
   const buffer = await downloadResponse.arrayBuffer();
-  // Convert ArrayBuffer to Node.js Buffer for storage (Supabase)
   const imageBuffer = Buffer.from(buffer);
 
   // 4. **Save File to Storage**
   // ----------------------------------------------------------
-  const filename = generateFilename(prompt, "image", "png"); // PNG is a safe default, check if API output is JPG
+  const filename = generateFilename(prompt, "image", "png");
   console.log(`Saving image file: ${filename}`);
 
-  // The saveFileToSlug function handles the upload logic
   await saveFileToSlug(slug, filename, imageBuffer);
   console.log(`✅ Image successfully saved to storage under slug: ${slug}`);
 
-  // Return the filename in the expected format
   return { image: filename };
 }
