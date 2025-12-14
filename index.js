@@ -217,6 +217,7 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
     // ✅ Compute final speaking reply from results (results align with `intents` order)
     let finalReply = "";
     let song_url = null;
+    const isMusic = intents.some(i => i?.intent === "music");
 
     // Prefer music reply first (music always gets a proper response)
     for (let i = 0; i < intents.length; i++) {
@@ -282,6 +283,7 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
     const responseObj = { reply: finalReply };
     if (song_url) {
       responseObj.song_url = song_url;
+      if (isMusic) responseObj.link = song_url;
     }
     return res.json(responseObj);
 

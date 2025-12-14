@@ -175,8 +175,7 @@ export async function handleIntents(slug, intents, context = {}) {
           : "⚠️ I couldn't find that song.";
 
         await appendChat(slug, userPrompt, reply);
-        // Return both reply and song_url so frontend can use them
-        results.push({ reply, song_url: music?.link || null });
+        results.push({ reply, song_url: music?.link || null, link: music?.link || null });
         continue;
       }
 
