@@ -6,7 +6,7 @@ import fs from "fs";
 import path from "path";
 
 import { logInfo, logError } from "./utils/logger.js";
-import { getUserPlanBySlug } from "./services/appwriteClient.js";
+import { getUserPlanBySlug, getUserPlanBySlug, ensureDeviceBySlug } from "./services/appwriteClient.js";
 import { db } from "./services/appwriteClient.js";
 import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
 import { ensureLimitFile, checkAndConsume } from "./limitManager.js";
@@ -458,6 +458,44 @@ app.get("/auth/google/callback", async (req, res) => {
     return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=callback_failed`);
   }
 });
+
+app.get("/device/check/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ error: "invalid_slug_format" });
+    }
+
+    const exists = await checkDeviceBySlug(slug);
+    return res.json({ exists });
+
+  } catch (err) {
+    logError("DEVICE CHECK ERROR:", err);
+    return res.status(500).json({ error: "server_error" });
+  }
+});
+app.post("/device/ensure/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ error: "invalid_slug_format" });
+    }
+
+    const result = await ensureDeviceBySlug(slug);
+
+    return res.json({
+      ok: true,
+      created: result.created
+    });
+
+  } catch (err) {
+    logError("DEVICE ENSURE ERROR:", err);
+    return res.status(500).json({ error: "server_error" });
+  }
+});
+
 
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT;
