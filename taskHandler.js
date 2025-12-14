@@ -106,10 +106,10 @@ export async function handleIntents(slug, intents, context = {}) {
           continue;
         }
 
+        const statusMsg = buildTaskReply(intent, parameters);
+        await appendChat(slug, userPrompt, statusMsg);
         await generateImage(userPrompt, slug, tierName, storageLimitMB);
-        const reply = buildTaskReply(intent, parameters);
-        await appendChat(slug, userPrompt, reply);
-        results.push(reply);
+        results.push(statusMsg);
         continue;
       }
 

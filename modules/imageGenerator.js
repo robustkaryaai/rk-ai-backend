@@ -18,15 +18,15 @@ if (!DEAPI_API_KEY) {
  * actual DeAPI documentation for the job status endpoint.
  */
 async function pollJobStatus(requestId, apiKey) {
-    // *** ASSUMED ENDPOINT ***
-    const statusUrl = `${DEAPI_BASE_URL}/api/v1/client/job/${requestId}`; 
-    const maxRetries = 30; // Max polling attempts (30 seconds total)
-    const delayMs = 1000;
+    const statusUrl = `${DEAPI_BASE_URL}/api/v1/client/job/${requestId}`;
+    const maxRetries = 90;
+    let delayMs = 2000;
 
     console.log(`Starting poll for request ID: ${requestId}`);
 
     for (let i = 0; i < maxRetries; i++) {
         await new Promise(resolve => setTimeout(resolve, delayMs));
+        delayMs = Math.min(Math.floor(delayMs * 1.2), 5000);
 
         const response = await fetch(statusUrl, {
             method: 'GET',
@@ -38,32 +38,25 @@ async function pollJobStatus(requestId, apiKey) {
 
         if (!response.ok) {
             console.error(`Status check failed with ${response.status}. Retrying...`);
-            continue; 
+            continue;
         }
 
         const data = await response.json();
-        // Assuming the status is nested or at the top level, and "completed" means success
-        const status = data.data?.status || data.status; 
-        
+        const status = data.data?.status || data.status;
+
         if (status === "completed" || status === "success") {
-            // *** ASSUMED RESULT KEY ***
-            // Assuming the result contains the final image URL, potentially nested
             const resultUrl = data.data?.image_url || data.data?.result_url || data.data?.url || data.result?.url;
-            
-            if (resultUrl) {
-                return resultUrl;
-            } else {
-                throw new Error(`Job completed but no image URL found in response: ${JSON.stringify(data)}`);
-            }
+            if (resultUrl) return resultUrl;
+            throw new Error(`Job completed but no image URL found in response: ${JSON.stringify(data)}`);
         }
-        
+
         if (status === "failed" || status === "error") {
             throw new Error(`Image generation failed: ${JSON.stringify(data)}`);
         }
 
         console.log(`Job ${requestId} status: ${status}. Polling attempt ${i + 1}/${maxRetries}...`);
     }
-    
+
     throw new Error(`Image generation timed out after ${maxRetries} seconds.`);
 }
 
@@ -157,6 +150,19 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
   }
 
   const generateData = await generateResponse.json();
+  const immediateUrl = generateData.data?.image_url || generateData.data?.result_url || generateData.data?.url;
+  if (immediateUrl) {
+    const downloadResponse = await fetch(immediateUrl);
+    if (!downloadResponse.ok) {
+      throw new Error(`Failed to download image from ${immediateUrl}: ${downloadResponse.status}`);
+    }
+    const buf = await downloadResponse.arrayBuffer();
+    const imageBuffer = Buffer.from(buf);
+    const filename = generateFilename(prompt, "image", "jpeg");
+    await saveFileToSlug(slug, filename, imageBuffer);
+    return { image: filename };
+  }
+
   const requestId = generateData.data?.request_id;
   
   if (!requestId) {
