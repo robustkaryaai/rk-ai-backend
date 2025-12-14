@@ -10,7 +10,6 @@ import { handleTeacherTask } from "./modules/teacherTools.js";
 import { handleMusic } from "./modules/musicPlayer.js";
 import { callGemini } from "./services/gemini.js";
 import { getSlugStorageUsed } from "./services/supabaseClient.js";
-import { transcribeMP3 } from "./services/assemblyai.js";
 import { checkAndConsume } from "./limitManager.js";
 
 /* ---------------- MCU PASS THROUGH ---------------- */
@@ -52,7 +51,6 @@ function buildTaskReply(intent, parameters = {}) {
   if (intent === "docx") return `📄 Creating document for ${prompt}`;
   if (intent === "ppt") return `📽️ Creating presentation for ${prompt}`;
   if (intent === "music") return `🎵 Playing music for you`;
-  if (intent === "transcribe") return `🎙️ Transcribing your audio`;
 
   return `✅ Working on ${prompt}`;
 }
@@ -179,14 +177,6 @@ export async function handleIntents(slug, intents, context = {}) {
         continue;
       }
 
-      /* ---------------- TRANSCRIBE ---------------- */
-      if (intent === "transcribe" && parameters.audioUrl) {
-        const transcript = await transcribeMP3(parameters.audioUrl);
-        const reply = transcript || "❌ Could not transcribe audio.";
-        await appendChat(slug, "Audio uploaded", reply);
-        results.push(reply);
-        continue;
-      }
 
       /* ---------------- STUDENT TASKS ---------------- */
       if (["note", "planner", "timetable", "task"].includes(intent)) {

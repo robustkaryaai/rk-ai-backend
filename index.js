@@ -1,8 +1,5 @@
 import express from "express";
 import dotenv from "dotenv";
-import multer from "multer";
-import fs from "fs";
-import path from "path";
 
 import { logInfo, logError } from "./utils/logger.js";
 import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug } from "./services/appwriteClient.js";
@@ -11,7 +8,7 @@ import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
 import { ensureLimitFile } from "./limitManager.js";
 import { callGemini } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
-import { transcribeMP3 } from "./services/assemblyai.js";
+// voice transcription removed — text-only processing
 
 dotenv.config();
 
@@ -20,29 +17,7 @@ const app = express();
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ ENSURE voice FOLDER EXISTS
-const VOICE_DIR = path.join(process.cwd(), "voice");
-if (!fs.existsSync(VOICE_DIR)) {
-  fs.mkdirSync(VOICE_DIR);
-}
-
-// ✅ REAL FILE STORAGE (NOT MEMORY)
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, VOICE_DIR);
-  },
-  filename: (req, file, cb) => {
-    const slug = String(req.params.slug);
-    const ext = path.extname(file.originalname) || ".m4a";
-    const name = `${slug}_${Date.now()}${ext}`;
-    cb(null, name);
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 }
-});
+// voice upload removed — text-only processing
 
 // ---------------- SYSTEM PROMPT ----------------
 const SYSTEM_PROMPT = `
@@ -115,46 +90,27 @@ User: "play lo-fi music"
 
 Now only output JSON following the schema and rules.`;
 
-// ---------------- VOICE ROUTE ----------------
-// ---------------- VOICE ROUTE ----------------
-app.post("/voice/:slug", upload.single("file"), async (req, res) => {
+// ---------------- TEXT ROUTE ----------------
+app.post("/text/:slug", async (req, res) => {
   try {
     const slug = String(req.params.slug);
+    const text = String(req.body?.text || "").trim();
 
-    if (!slug || !req.file) {
+    if (!slug || !text) {
       return res.status(400).json({ error: "bad_request" });
     }
 
-    // ✅ FULL PATH OF SAVED FILE
-    const audioPath = req.file.path;
-    logInfo("🎤 VOICE FILE SAVED:", audioPath);
-
-    // ✅ Verify device
     const device = await getUserPlanBySlug(slug);
     if (!device) {
       return res.status(404).json({ error: "invalid_slug" });
     }
 
-    const tier =
-      device.subscription === "true"
-        ? Number(device["subscription-tier"] || 0)
-        : 0;
-
-    // ✅ Ensure limit file
     await ensureLimitFile(slug);
-
-    // ✅ ✅ ✅ TRANSCRIBE FROM REAL FILE PATH
-    const transcription = await transcribeMP3(audioPath);
-
-    // ✅ ✅ ✅ DELETE FILE AFTER TRANSCRIPTION (AUTO CLEANUP)
-    fs.unlink(audioPath, (err) => {
-      console.log("Done bro :) Deleted file:", audioPath);
-    });
 
     let rawIntents = await callGemini(
       SYSTEM_PROMPT,
       [],
-      transcription
+      text
     );
 
     let intents;
@@ -162,23 +118,16 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
       intents = JSON.parse(rawIntents);
       if (!Array.isArray(intents)) throw new Error("Bad JSON");
     } catch {
-      intents = [{ intent: "chat", parameters: { prompt: transcription } }];
+      intents = [{ intent: "chat", parameters: { prompt: text } }];
     }
 
-    
-
-  // ✅ Save user input (atomic placeholder) - returns the index for later AI update
-  const appended = await appendUser(slug, `User: ${transcription}`);
-
-    // ✅ Run task handler
+    const appended = await appendUser(slug, `User: ${text}`);
     const results = await handleIntents(slug, intents, { device });
 
-    // ✅ Compute final speaking reply from results (results align with `intents` order)
     let finalReply = "";
     let song_url = null;
     const isMusic = intents.some(i => i?.intent === "music");
 
-    // Prefer music reply first (music always gets a proper response)
     for (let i = 0; i < intents.length; i++) {
       const intentName = intents[i]?.intent;
       const r = results[i];
@@ -190,7 +139,6 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
       }
     }
 
-    // Then prefer chat/general (user just wants to talk)
     if (!finalReply) {
       for (let i = 0; i < intents.length; i++) {
         const intentName = intents[i]?.intent;
@@ -203,8 +151,6 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
       }
     }
 
-    // Skip file/task intents (they return status messages like "✅ Creating notes...") unless no chat found
-    // If we still don't have a reply and there are file/task intents, use their status message
     if (!finalReply) {
       const fileIntents = ["note", "planner", "timetable", "task", "docx", "ppt", "image", "video", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"];
       for (let i = 0; i < intents.length; i++) {
@@ -218,7 +164,6 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
       }
     }
 
-    // Fallback: first non-empty string in results
     if (!finalReply) {
       for (const r of results) {
         if (typeof r === "string" && r.trim()) {
@@ -232,13 +177,11 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
       }
     }
 
-    // ✅ Save only AI reply by updating the last user entry
     if (finalReply) {
       const idx = appended?.index ?? null;
       await updateLastAI(slug, finalReply, idx);
     }
 
-    // ✅ ✅ ✅ ✅ FINAL CLEAN RESPONSE (NO TRASH)
     const responseObj = { reply: finalReply };
     if (song_url) {
       responseObj.song_url = song_url;
@@ -247,7 +190,7 @@ app.post("/voice/:slug", upload.single("file"), async (req, res) => {
     return res.json(responseObj);
 
   } catch (err) {
-    logError("VOICE ERROR:", err);
+    logError("TEXT ERROR:", err);
     return res.status(500).json({
       error: "server_error",
       message: String(err)
