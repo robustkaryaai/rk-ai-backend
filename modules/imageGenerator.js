@@ -3,65 +3,125 @@ import { saveFileToSlug } from "../services/supabaseClient.js";
 import { generateFilename } from "../utils/fileNaming.js";
 
 // --- Configuration ---
-const DEPIN_BASE_URL = "https://depin.gamercoin.com";
-const DEPIN_API_KEY = process.env.DEPIN_API_KEY; 
+const DEAPI_BASE_URL = "https://api.deapi.ai";
+// Use DEAPI_API_KEY environment variable for the secret token
+const DEAPI_API_KEY = process.env.DEAPI_API_KEY; 
 
-if (!DEPIN_API_KEY) {
-    throw new Error("DEPIN_API_KEY environment variable is not set. Please set it to your DePIN API key.");
+if (!DEAPI_API_KEY) {
+    throw new Error("DEAPI_API_KEY environment variable is not set. Please set it to your DeAPI secret token.");
 }
 
 /**
- * Generates an image using the external DePIN API (GamerCoin), 
- * downloads the result, and saves it to a specified storage slug.
- * * **UPDATED SIGNATURE** to accept tier and storageLimitMB
+ * Polls the DeAPI status endpoint until the job is complete or times out.
+ * * NOTE: The status URL and response structure for the final result are inferred 
+ * based on common API design patterns. They might need adjustment based on the 
+ * actual DeAPI documentation for the job status endpoint.
+ */
+async function pollJobStatus(requestId, apiKey) {
+    // *** ASSUMED ENDPOINT ***
+    const statusUrl = `${DEAPI_BASE_URL}/api/v1/client/job/${requestId}`; 
+    const maxRetries = 30; // Max polling attempts (30 seconds total)
+    const delayMs = 1000;
+
+    console.log(`Starting poll for request ID: ${requestId}`);
+
+    for (let i = 0; i < maxRetries; i++) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+
+        const response = await fetch(statusUrl, {
+            method: 'GET',
+            headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Accept": "application/json",
+            }
+        });
+
+        if (!response.ok) {
+            console.error(`Status check failed with ${response.status}. Retrying...`);
+            continue; 
+        }
+
+        const data = await response.json();
+        // Assuming the status is nested or at the top level, and "completed" means success
+        const status = data.data?.status || data.status; 
+        
+        if (status === "completed" || status === "success") {
+            // *** ASSUMED RESULT KEY ***
+            // Assuming the result contains the final image URL, potentially nested
+            const resultUrl = data.data?.image_url || data.data?.result_url || data.data?.url || data.result?.url;
+            
+            if (resultUrl) {
+                return resultUrl;
+            } else {
+                throw new Error(`Job completed but no image URL found in response: ${JSON.stringify(data)}`);
+            }
+        }
+        
+        if (status === "failed" || status === "error") {
+            throw new Error(`Image generation failed: ${JSON.stringify(data)}`);
+        }
+
+        console.log(`Job ${requestId} status: ${status}. Polling attempt ${i + 1}/${maxRetries}...`);
+    }
+    
+    throw new Error(`Image generation timed out after ${maxRetries} seconds.`);
+}
+
+/**
+ * Generates an image using the external DeAPI platform, 
+ * processes the result asynchronously, downloads the image, 
+ * and saves it to a specified storage slug.
  *
  * @param {string} prompt - The text prompt for image generation.
- * @param {string} slug - The identifier for the storage location (e.g., Supabase bucket path).
- * @param {string} tier - The user's service tier (e.g., 'free', 'pro').
+ * @param {string} slug - The identifier for the storage location.
+ * @param {string} tier - The user's service tier.
  * @param {number} storageLimitMB - The user's current storage limit in megabytes.
  * @returns {Promise<{image: string}>} - An object containing the saved filename.
  */
 export async function generateImage(prompt, slug, tier, storageLimitMB) {
-  // 1. **Request Image Generation**
-  // ---------------------------------
-  console.log(`Sending image generation request for prompt: "${prompt}"`);
+  // 1. **Submit Image Generation Request**
+  // -------------------------------------
+  console.log(`Sending DeAPI image generation request for prompt: "${prompt}"`);
 
-  // Optional: You could use the 'tier' or 'storageLimitMB' here to adjust payload
-  // e.g., using a lower resolution for the 'free' tier.
+  // Default parameters based on your example
   const payload = {
-    model_id: 20, // Example model ID
-    prompt: prompt,
-    image_count: 1, 
-    style_id: 11 // Example style ID
+    "prompt": prompt,
+    "negative_prompt": "blur, darkness, noise, bad quality, artifacts",
+    "model": "Flux1schnell", 
+    "loras": [{ "name": "style_lora", "weight": 0.75 }],
+    "width": 512,
+    "height": 512,
+    "guidance": 7.5,
+    "steps": 20,
+    "seed": 42
   };
 
-  const generateResponse = await fetch(`${DEPIN_BASE_URL}/v1/api/image/generate`, {
+  const generateResponse = await fetch(`${DEAPI_BASE_URL}/api/v1/client/txt2img`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${DEPIN_API_KEY}`,
-      'Content-Type': 'application/json'
+      "Authorization": `Bearer ${DEAPI_API_KEY}`,
+      "Accept": "application/json",
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
 
   if (!generateResponse.ok) {
     const errorBody = await generateResponse.text();
-    throw new Error(`DePIN API Image Generation Failed: ${generateResponse.status} - ${errorBody}`);
+    throw new Error(`DeAPI Submission Failed: ${generateResponse.status} - ${errorBody}`);
   }
 
   const generateData = await generateResponse.json();
-  console.log("Image generation response received.");
-
-  // 2. **Process Response and Get Image URL**
-  // ------------------------------------------
-  const imageUrls = generateData?.response?.result?.images;
+  const requestId = generateData.data?.request_id;
   
-  if (!imageUrls || imageUrls.length === 0) {
-      throw new Error(`DePIN API did not return any image URLs. Full response: ${JSON.stringify(generateData)}`);
+  if (!requestId) {
+      throw new Error(`DeAPI did not return a request_id. Full response: ${JSON.stringify(generateData)}`);
   }
 
-  const imageUrl = imageUrls[0].url; 
-  console.log(`Image URL received: ${imageUrl}`);
+  // 2. **Poll for Result**
+  // ----------------------
+  const imageUrl = await pollJobStatus(requestId, DEAPI_API_KEY);
+  console.log(`Image URL successfully retrieved: ${imageUrl}`);
 
   // 3. **Download Image**
   // ---------------------
@@ -77,7 +137,7 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
 
   // 4. **Save File to Storage**
   // ----------------------------------------------------------
-  const filename = generateFilename(prompt, "image", "png");
+  const filename = generateFilename(prompt, "image", "jpeg"); 
   console.log(`Saving image file: ${filename}`);
 
   await saveFileToSlug(slug, filename, imageBuffer);
