@@ -88,11 +88,11 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
     "prompt": prompt,
     "negative_prompt": "blur, darkness, noise, bad quality, artifacts",
     "model": "Flux1schnell", 
-    "loras": [{ "name": "style_lora", "weight": 0.75 }],
     "width": 512,
     "height": 512,
     "guidance": 7.5,
-    "steps": 20,
+    // API requires steps <= 10
+    "steps": 10,
     "seed": 42
   };
 
@@ -107,6 +107,51 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
   });
 
   if (!generateResponse.ok) {
+    // Attempt a single automatic correction on 4xx validation errors
+    if (generateResponse.status === 422) {
+      let errJson;
+      try { errJson = await generateResponse.json(); } catch { errJson = null; }
+
+      const corrected = { ...payload };
+      // Ensure steps are within allowed range
+      corrected.steps = Math.min(Number(corrected.steps || 10), 10);
+      // Ensure no loras
+      delete corrected.loras;
+
+      const retry = await fetch(`${DEAPI_BASE_URL}/api/v1/client/txt2img`, {
+        method: 'POST',
+        headers: {
+          "Authorization": `Bearer ${DEAPI_API_KEY}`,
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(corrected)
+      });
+
+      if (!retry.ok) {
+        const retryBody = await retry.text();
+        throw new Error(`DeAPI Submission Failed (retry): ${retry.status} - ${retryBody}`);
+      }
+
+      const retryData = await retry.json();
+      const requestId = retryData.data?.request_id;
+      if (!requestId) {
+        throw new Error(`DeAPI did not return a request_id (retry). Full response: ${JSON.stringify(retryData)}`);
+      }
+
+      // Continue with polling using retry requestId
+      const imageUrl = await pollJobStatus(requestId, DEAPI_API_KEY);
+      const downloadResponse = await fetch(imageUrl);
+      if (!downloadResponse.ok) {
+        throw new Error(`Failed to download image from ${imageUrl}: ${downloadResponse.status}`);
+      }
+      const buf = await downloadResponse.arrayBuffer();
+      const imageBuffer = Buffer.from(buf);
+      const filename = generateFilename(prompt, "image", "jpeg");
+      await saveFileToSlug(slug, filename, imageBuffer);
+      return { image: filename };
+    }
+
     const errorBody = await generateResponse.text();
     throw new Error(`DeAPI Submission Failed: ${generateResponse.status} - ${errorBody}`);
   }
