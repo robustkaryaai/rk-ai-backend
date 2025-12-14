@@ -1,124 +1,87 @@
-import fs from "fs"; 
+import fs from "fs";
 import { saveFileToSlug } from "../services/supabaseClient.js";
 import { generateFilename } from "../utils/fileNaming.js";
 
-// --- Configuration ---
-const VEO_BASE_URL = "https://veo3api.com";
-// Ensure this is properly defined outside the function to fail fast, as we discussed
-const VEO_API_KEY = process.env.VEO_API_KEY; 
-
-// Define the polling status for clarity
-const STATUS_COMPLETED = "COMPLETED";
-
-// Check if the API Key is available (Good practice)
-if (!VEO_API_KEY) {
-    throw new Error("VEO_API_KEY environment variable is not set. Please set it to your Veo API key.");
+const HF_TOKEN = process.env.HF_TOKEN;
+if (!HF_TOKEN) {
+  throw new Error("HF_TOKEN environment variable is not set.");
 }
 
-
-/**
- * Generates a video using the external Veo API, polls for completion,
- * downloads the video, and saves it to a specified storage slug.
- * * **UPDATED SIGNATURE** to accept tier and storageLimitMB
- *
- * @param {string} prompt - The text prompt for video generation.
- * @param {string} slug - The identifier for the storage location (e.g., Supabase bucket path).
- * @param {string} tier - The user's service tier (e.g., 'free', 'pro').
- * @param {number} storageLimitMB - The user's current storage limit in megabytes.
- * @returns {Promise<{video: string}>} - An object containing the saved filename.
- */
 export async function generateVideo(prompt, slug, tier, storageLimitMB) {
-  // If you don't use tier or storageLimitMB yet, they are simply accepted and ignored.
-  // You might add logic here later, e.g.:
-  // if (tier === 'free') { 
-  //   // Use a faster/lower-res model or check storage limits
-  // }
-  
-  // 1. **Request Video Generation**
-  // ... (REST OF THE FUNCTION BODY REMAINS THE SAME)
-  // ---------------------------------
-  console.log(`Sending video generation request for prompt: "${prompt}"`);
+  const endpoint = "https://router.huggingface.co/models/Lightricks/LTX-Video";
 
-  const generateResponse = await fetch(`${VEO_BASE_URL}/generate`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${VEO_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      prompt: prompt,
-      model: 'veo3-fast',
-      watermark: 'RK AI'
-    })
-  });
+  const payload = {
+    inputs: {
+      prompt,
+      num_frames: 16,
+      fps: 8
+    }
+  };
 
-  if (!generateResponse.ok) {
-    const errorBody = await generateResponse.text();
-    throw new Error(`Veo API Generation Failed: ${generateResponse.status} - ${errorBody}`);
-  }
+  let attempts = 0;
+  let lastErr = null;
+  while (attempts < 6) {
+    attempts += 1;
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
 
-  const generateData = await generateResponse.json();
-  const taskId = generateData.data.task_id;
-  console.log(`✅ Generation request accepted. Task ID: ${taskId}`);
-
-  // 2. **Poll for Completion**
-  // --------------------------
-  let status = null;
-  let videoUrl = null;
-
-  while (status !== STATUS_COMPLETED) {
-    console.log(`⏳ Polling status for Task ID ${taskId}...`);
-    await new Promise((resolve) => setTimeout(resolve, 10000));
-
-    const feedResponse = await fetch(`${VEO_BASE_URL}/feed?task_id=${taskId}`);
-
-    if (!feedResponse.ok) {
-        const errorBody = await feedResponse.text();
-        console.error(`Veo API Feed Status Failed: ${feedResponse.status} - ${errorBody}`);
-        throw new Error(`Veo API Feed Status Failed for task ${taskId}.`);
+    if (res.status === 503 || res.status === 429) {
+      const retryAfter = Number(res.headers.get("retry-after") || 0);
+      const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(5000 * attempts, 20000);
+      await new Promise(r => setTimeout(r, waitMs));
+      continue;
     }
 
-    const feedData = await feedResponse.json();
-    status = feedData.data.status;
+    if (!res.ok) {
+      const t = await res.text();
+      lastErr = new Error(`HF LTX-Video failed: ${res.status} - ${t}`);
+      break;
+    }
 
-    if (status === STATUS_COMPLETED) {
-        console.log("🎉 Video generation completed!");
-        if (feedData.data.response && feedData.data.response.length > 0) {
-            videoUrl = feedData.data.response[0];
-            console.log(`Video URL: ${videoUrl}`);
-        } else {
-            throw new Error(`Task ${taskId} completed but no video URL found in response.`);
+    const ct = res.headers.get("content-type") || "";
+    try {
+      if (ct.includes("application/json")) {
+        const j = await res.json();
+        const videoUrl = j.videoUrl || j.video_url || j.url;
+        const base64 = j.video || j.data;
+
+        if (videoUrl) {
+          const dl = await fetch(videoUrl);
+          if (!dl.ok) throw new Error(`Download failed: ${dl.status}`);
+          const buf = Buffer.from(await dl.arrayBuffer());
+          const filename = generateFilename(prompt, "video", "mp4");
+          await saveFileToSlug(slug, filename, buf);
+          return { video: filename };
         }
-    } else if (status === 'FAILED') {
-        throw new Error(`Video generation task ${taskId} failed on the server.`);
-    } else {
-        console.log(`Current status: ${status}. Continuing to poll...`);
+
+        if (base64) {
+          const raw = String(base64).includes(",") ? String(base64).split(",").pop() : String(base64);
+          const buf = Buffer.from(raw, "base64");
+          const filename = generateFilename(prompt, "video", "mp4");
+          await saveFileToSlug(slug, filename, buf);
+          return { video: filename };
+        }
+
+        lastErr = new Error("HF LTX-Video returned JSON without video content.");
+        break;
+      } else {
+        const buf = Buffer.from(await res.arrayBuffer());
+        const filename = generateFilename(prompt, "video", "mp4");
+        await saveFileToSlug(slug, filename, buf);
+        return { video: filename };
+      }
+    } catch (e) {
+      lastErr = e;
+      break;
     }
   }
 
-  // 3. **Download Video**
-  // ---------------------
-  if (!videoUrl) {
-    throw new Error("Could not retrieve video URL after completion.");
-  }
-
-  console.log("⬇️ Starting video download...");
-  const downloadResponse = await fetch(videoUrl);
-
-  if (!downloadResponse.ok) {
-    throw new Error(`Failed to download video from ${videoUrl}: ${downloadResponse.status}`);
-  }
-
-  const buffer = await downloadResponse.arrayBuffer();
-  const videoBuffer = Buffer.from(buffer);
-
-  // 4. **Save File to Storage (Supabase/Google Cloud, etc.)**
-  // ----------------------------------------------------------
-  const filename = generateFilename(prompt, "video", "mp4");
-  console.log(`Saving video file: ${filename}`);
-
-  await saveFileToSlug(slug, filename, videoBuffer);
-  console.log(`✅ Video successfully saved to storage under slug: ${slug}`);
-
-  return { video: filename };
+  if (lastErr) throw lastErr;
+  throw new Error("HF LTX-Video request did not complete.");
 }
