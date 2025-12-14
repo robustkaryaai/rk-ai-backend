@@ -24,7 +24,7 @@ export async function getUserPlanBySlug(slug) {
   return res.documents[0];
 }
 
-export async function doesDeviceExist(slug) {
+export async function checkDeviceBySlug(slug) {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
@@ -33,6 +33,7 @@ export async function doesDeviceExist(slug) {
 
   return res.documents.length > 0;
 }
+
 export async function ensureDeviceBySlug(slug) {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
@@ -40,18 +41,16 @@ export async function ensureDeviceBySlug(slug) {
     [Query.equal("slug", Number(slug))]
   );
 
-  // 🟢 If exists, we're done
   if (res.documents.length > 0) {
-    return true;
+    return { created: false };
   }
 
-  // 🔴 If not, create device
   await db.createDocument(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
     ID.unique(),
     {
-      slug: Number(slug),               // 9 digit number
+      slug: Number(slug),
       subscription: "false",
       "subscription-tier": 0,
       name_of_device: "RK AI",
@@ -60,5 +59,5 @@ export async function ensureDeviceBySlug(slug) {
     }
   );
 
-  return true;
+  return { created: true };
 }
