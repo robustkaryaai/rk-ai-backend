@@ -6,7 +6,7 @@ import fs from "fs";
 import path from "path";
 
 import { logInfo, logError } from "./utils/logger.js";
-import { getUserPlanBySlug, getUserPlanBySlug, ensureDeviceBySlug } from "./services/appwriteClient.js";
+import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug } from "./services/appwriteClient.js";
 import { db } from "./services/appwriteClient.js";
 import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
 import { ensureLimitFile, checkAndConsume } from "./limitManager.js";
