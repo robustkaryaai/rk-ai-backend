@@ -18,7 +18,7 @@ if (!DEAPI_API_KEY) {
  * actual DeAPI documentation for the job status endpoint.
  */
 async function pollJobStatus(requestId, apiKey) {
-    const statusUrl = `${DEAPI_BASE_URL}/api/v1/client/job/${requestId}`;
+    const statusUrl = `${DEAPI_BASE_URL}/api/v1/client/request-status/${requestId}`;
     const maxRetries = 90;
     let delayMs = 2000;
 
@@ -42,15 +42,15 @@ async function pollJobStatus(requestId, apiKey) {
         }
 
         const data = await response.json();
-        const status = data.data?.status || data.status;
+        const status = data?.data?.status;
 
-        if (status === "completed" || status === "success") {
-            const resultUrl = data.data?.image_url || data.data?.result_url || data.data?.url || data.result?.url;
+        if (status === "done") {
+            const resultUrl = data?.data?.result_url || data?.data?.image_url || data?.data?.url;
             if (resultUrl) return resultUrl;
             throw new Error(`Job completed but no image URL found in response: ${JSON.stringify(data)}`);
         }
 
-        if (status === "failed" || status === "error") {
+        if (status === "failed") {
             throw new Error(`Image generation failed: ${JSON.stringify(data)}`);
         }
 
@@ -150,7 +150,7 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
   }
 
   const generateData = await generateResponse.json();
-  const immediateUrl = generateData.data?.image_url || generateData.data?.result_url || generateData.data?.url;
+  const immediateUrl = generateData.data?.result_url || generateData.data?.image_url || generateData.data?.url;
   if (immediateUrl) {
     const downloadResponse = await fetch(immediateUrl);
     if (!downloadResponse.ok) {
@@ -163,7 +163,7 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
     return { image: filename };
   }
 
-  const requestId = generateData.data?.request_id;
+  const requestId = generateData.data?.job_request || generateData.data?.request_id;
   
   if (!requestId) {
       throw new Error(`DeAPI did not return a request_id. Full response: ${JSON.stringify(generateData)}`);
