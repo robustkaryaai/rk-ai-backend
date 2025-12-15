@@ -113,6 +113,13 @@ export async function handleIntents(slug, intents, context = {}) {
 
       /* ---------------- VIDEO ---------------- */
       if (intent === "video") {
+        if (!(tierNum === 3 || tierNum === 4)) {
+          const reply = "❌ Video generation is available only for Pro and Studio plans.";
+          await appendChat(slug, userPrompt, reply);
+          results.push(reply);
+          continue;
+        }
+
         const check = await checkAndConsume(slug, tierNum, "video", 1);
         if (!check.ok) {
           const reply = "❌ Daily video limit reached";
