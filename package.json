@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
+    "@huggingface/inference": "^2.7.0",
     "@google/genai": "^0.6.1",
     "@supabase/supabase-js": "^2.39.0",
     "docx": "^8.5.0",
