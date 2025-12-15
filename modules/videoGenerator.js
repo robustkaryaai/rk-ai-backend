@@ -2,7 +2,7 @@ import fs from "fs";
 import { saveFileToSlug, downloadFileFromSlug, supabase } from "../services/supabaseClient.js";
 import { generateFilename } from "../utils/fileNaming.js";
 import { generateImage } from "./imageGenerator.js";
-import { InferenceClient } from "@huggingface/inference";
+import { HfInference } from "@huggingface/inference";
 
 const HF_TOKEN = process.env.HF_TOKEN;
 if (!HF_TOKEN) {
@@ -87,7 +87,7 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB) {
     await saveFileToSlug(slug, filename, buf);
     return { video: filename };
   }
-  const client = new InferenceClient(HF_TOKEN);
+  const hf = new HfInference(HF_TOKEN);
 
   // 1) Generate base image via DeAPI
   const img = await generateImage(prompt, slug, tier, storageLimitMB);
@@ -111,10 +111,11 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB) {
   while (attempts < 6) {
     attempts += 1;
     try {
-      const blob = await client.imageToVideo({
+      const blobImage = new Blob([imageBuffer], { type: "image/jpeg" });
+      const blob = await hf.imageToVideo({
         provider: "auto",
         model: "Lightricks/LTX-Video",
-        inputs: imageBuffer,
+        inputs: blobImage,
         parameters: params
       });
 
