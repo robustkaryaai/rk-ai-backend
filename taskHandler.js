@@ -175,12 +175,21 @@ export async function handleIntents(slug, intents, context = {}) {
       if (intent === "music") {
         const music = await handleMusic(userPrompt, slug);
 
-        const reply = music?.link
-          ? `🎶 Now playing: ${userPrompt}\n🔗 Stream: ${music.link}`
-          : "⚠️ I couldn't find that song.";
+        if (music?.link) {
+          const reply = `Playing ${userPrompt}`;
+          const jsonResponse = {
+            intent: "music",
+            reply: reply,
+            link: music.link
+          };
 
-        await appendChat(slug, userPrompt, reply);
-        results.push({ reply, song_url: music?.link || null, link: music?.link || null });
+          await appendChat(slug, userPrompt, reply);
+          results.push(jsonResponse);
+        } else {
+          const reply = "Could not find that song.";
+          await appendChat(slug, userPrompt, reply);
+          results.push({ intent: "music", reply });
+        }
         continue;
       }
 
@@ -214,6 +223,47 @@ export async function handleIntents(slug, intents, context = {}) {
         continue;
       }
 
+      /* ---------------- ANNOUNCEMENT ---------------- */
+      if (intent === "announcement") {
+        const announcementText = parameters.prompt || userPrompt;
+
+        const jsonResponse = {
+          intent: "announcement",
+          reply: announcementText
+        };
+
+        await appendChat(slug, userPrompt, `📢 Announcement: ${announcementText}`);
+        results.push(jsonResponse);
+        continue;
+      }
+
+      /* ---------------- ALARM ---------------- */
+      if (intent === "alarm") {
+        const alarmTime = parameters.time;
+
+        if (alarmTime) {
+          const reply = `Alarm set for ${alarmTime}`;
+          const jsonResponse = {
+            intent: "alarm",
+            reply: reply,
+            time: alarmTime
+          };
+
+          await appendChat(slug, userPrompt, reply);
+          results.push(jsonResponse);
+        } else {
+          const reply = "What time should I set the alarm?";
+          const jsonResponse = {
+            intent: "alarm",
+            reply: reply
+          };
+
+          await appendChat(slug, userPrompt, reply);
+          results.push(jsonResponse);
+        }
+        continue;
+      }
+
       /* ---------------- GEMINI CHAT ---------------- */
       if (intent === "chat" || intent === "general") {
         const history = await loadChat(slug);
@@ -230,8 +280,8 @@ export async function handleIntents(slug, intents, context = {}) {
           typeof rawReply === "string"
             ? rawReply
             : rawReply && typeof rawReply === "object" && typeof rawReply.text === "string"
-            ? rawReply.text
-            : null;
+              ? rawReply.text
+              : null;
 
         if (reply) {
           await appendChat(slug, userPrompt, reply);

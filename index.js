@@ -32,8 +32,10 @@ INTENTS
 - note: short notes or explanations.
 - planner: study schedule, daily routine, checklist.
 - timetable: school/coaching timetable.
-- task: alarms, reminders, todos.
-- period_bell, announcement, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music.
+- task: alarms, reminders, todos (use alarm intent for time-based alarms).
+- alarm: set alarms with specific times (extract time from prompt).
+- announcement: make announcements, broadcast messages, notify.
+- period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music.
 
 STRICT CLASSIFICATION RULES
 1) If the user uses generative verbs (generate/make/create/render/build) with a media noun:
@@ -43,24 +45,28 @@ STRICT CLASSIFICATION RULES
    - Mentions document/report/essay/study notes: intent = "docx".
    Never default to "chat" if a generative intent is implied.
 2) If the user says play/start music/song/background sound → intent = "music" (NOT video).
-3) If the user mixes multiple requests, return multiple intents in a single array.
-4) If the message is truly unclear, use "general".
-5) For alarms: default type is reminder unless specified; store "time" in parameters.
-6) For weather/news, default location to Delhi, India unless user gives a real place; for news, only India.
-7) Stop/silence/cancel alarms → intent = "stop_alarm".
-8) "emergency", "fire", "evacuate", "alert" → "emergency_alarm" or "fire_alarm".
-9) Viva/interview/yourself/oral questions → "chat".
-10) Output must be pure JSON; do not wrap in markdown; no commentary.
+3) If the user says "announce", "announcement", "broadcast", "notify everyone" → intent = "announcement".
+4) If the user says "set alarm", "wake me up at", "alarm for [time]" → intent = "alarm" and extract time.
+5) If the user mixes multiple requests, return multiple intents in a single array.
+6) If the message is truly unclear, use "general".
+7) For alarms: extract "time" parameter in format like "8:00 AM", "20:00", etc.
+8) For announcements: put the announcement message in the "prompt" parameter.
+9) For weather/news, default location to Delhi, India unless user gives a real place; for news, only India.
+10) Stop/silence/cancel alarms → intent = "stop_alarm".
+11) "emergency", "fire", "evacuate", "alert" → "emergency_alarm" or "fire_alarm".
+12) Viva/interview/yourself/oral questions → "chat".
+13) Output must be pure JSON; do not wrap in markdown; no commentary.
+
 
 OUTPUT SCHEMA
 [
   {
-    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "status" | "period_bell" | "announcement" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music",
+    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music",
     "parameters": {
       "prompt": "description or command",
       "location": "use Delhi, India if not provided for weather/news",
       "note_type": "if notes or summary",
-      "time": "if scheduling/alarm",
+      "time": "if scheduling/alarm (e.g., '8:00 AM', '20:00')",
       "extra": "any additional context"
     }
   }
@@ -86,6 +92,14 @@ User: "write a report on AI ethics"
 User: "play lo-fi music"
 [
   { "intent": "music", "parameters": { "prompt": "play lo-fi music" } }
+]
+User: "announce that dinner is ready"
+[
+  { "intent": "announcement", "parameters": { "prompt": "dinner is ready" } }
+]
+User: "set alarm for 8 AM"
+[
+  { "intent": "alarm", "parameters": { "prompt": "wake up", "time": "8:00 AM" } }
 ]
 
 Now only output JSON following the schema and rules.`;
@@ -298,7 +312,7 @@ app.get("/auth/google/callback", async (req, res) => {
       { headers: { Authorization: `Bearer ${access_token}` } }
     );
     const searchResult = await searchRes.json();
-    
+
     let folderId;
     if (searchResult.files && searchResult.files.length > 0) {
       folderId = searchResult.files[0].id;
@@ -327,7 +341,7 @@ app.get("/auth/google/callback", async (req, res) => {
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
       user.$id,
-      { 
+      {
         storageUsing: 'google',
         googleAccessToken: access_token,
         googleRefreshToken: refresh_token,
