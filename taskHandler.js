@@ -171,27 +171,27 @@ export async function handleIntents(slug, intents, context = {}) {
         continue;
       }
 
-      /* ---------------- MUSIC ---------------- */
-      if (intent === "music") {
-        const music = await handleMusic(userPrompt, slug);
-
-        if (music?.link) {
-          const reply = `Playing ${userPrompt}`;
-          const jsonResponse = {
-            intent: "music",
-            reply: reply,
-            link: music.link
-          };
-
-          await appendChat(slug, userPrompt, reply);
-          results.push(jsonResponse);
-        } else {
-          const reply = "Could not find that song.";
-          await appendChat(slug, userPrompt, reply);
-          results.push({ intent: "music", reply });
-        }
-        continue;
-      }
+      /* ---------------- MUSIC (HANDLED BY PI) ---------------- */
+      // if (intent === "music") {
+      //   const music = await handleMusic(userPrompt, slug);
+      //
+      //   if (music?.link) {
+      //     const reply = `Playing ${userPrompt}`;
+      //     const jsonResponse = {
+      //       intent: "music",
+      //       reply: reply,
+      //       link: music.link
+      //     };
+      //
+      //     await appendChat(slug, userPrompt, reply);
+      //     results.push(jsonResponse);
+      //   } else {
+      //     const reply = "Could not find that song.";
+      //     await appendChat(slug, userPrompt, reply);
+      //     results.push({ intent: "music", reply });
+      //   }
+      //   continue;
+      // }
 
 
       /* ---------------- STUDENT TASKS ---------------- */
