@@ -397,6 +397,142 @@ app.post("/device/ensure/:slug", async (req, res) => {
   }
 });
 
+// ---------------- DEVICE AUTHENTICATION & CONTROL ----------------
+
+// Verify device password
+app.post("/device/:slug/verify", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+    const { password } = req.body;
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ verified: false, message: "Invalid slug format" });
+    }
+
+    if (!password) {
+      return res.status(400).json({ verified: false, message: "Password required" });
+    }
+
+    // Get device from Appwrite
+    const deviceDoc = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      [Query.equal("slug", Number(slug))]
+    );
+
+    if (deviceDoc.documents.length === 0) {
+      return res.status(404).json({ verified: false, message: "Device not found" });
+    }
+
+    const device = deviceDoc.documents[0];
+
+    // Check password (assuming there's a 'password' field in devices collection)
+    if (device.password === password) {
+      return res.json({
+        verified: true,
+        deviceName: device.name_of_device || "RK AI",
+        tier: device["subscription-tier"] || 0
+      });
+    } else {
+      return res.status(401).json({ verified: false, message: "Incorrect password" });
+    }
+
+  } catch (err) {
+    logError("PASSWORD VERIFY ERROR:", err);
+    return res.status(500).json({ verified: false, message: "Server error" });
+  }
+});
+
+// Toggle device mute state
+app.post("/device/:slug/mute", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+    const { muted } = req.body;
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ error: "Invalid slug format" });
+    }
+
+    // Get device document
+    const deviceDoc = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      [Query.equal("slug", Number(slug))]
+    );
+
+    if (deviceDoc.documents.length === 0) {
+      return res.status(404).json({ error: "Device not found" });
+    }
+
+    const device = deviceDoc.documents[0];
+
+    // Update mute state in Appwrite
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      { is_muted: muted }
+    );
+
+    logInfo(`Device ${slug} mute state set to: ${muted}`);
+
+    return res.json({
+      ok: true,
+      muted,
+      message: muted ? "Device muted" : "Device unmuted"
+    });
+
+  } catch (err) {
+    logError("MUTE TOGGLE ERROR:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Toggle device memory state
+app.post("/device/:slug/memory", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+    const { enabled } = req.body;
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ error: "Invalid slug format" });
+    }
+
+    // Get device document
+    const deviceDoc = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      [Query.equal("slug", Number(slug))]
+    );
+
+    if (deviceDoc.documents.length === 0) {
+      return res.status(404).json({ error: "Device not found" });
+    }
+
+    const device = deviceDoc.documents[0];
+
+    // Update memory state in Appwrite
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      { memory_enabled: enabled }
+    );
+
+    logInfo(`Device ${slug} memory set to: ${enabled}`);
+
+    return res.json({
+      ok: true,
+      enabled,
+      message: enabled ? "Memory enabled" : "Memory disabled"
+    });
+
+  } catch (err) {
+    logError("MEMORY TOGGLE ERROR:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT;
