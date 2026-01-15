@@ -533,6 +533,131 @@ app.post("/device/:slug/memory", async (req, res) => {
   }
 });
 
+// ---------------- COMMAND QUEUE SYSTEM ----------------
+
+// Queue a command for Pi to execute
+app.post("/device/:slug/command", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+    const { command_type, payload } = req.body;
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ error: "Invalid slug format" });
+    }
+
+    if (!command_type) {
+      return res.status(400).json({ error: "command_type required" });
+    }
+
+    // Validate device exists
+    const deviceDoc = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      [Query.equal("slug", Number(slug))]
+    );
+
+    if (deviceDoc.documents.length === 0) {
+      return res.status(404).json({ error: "Device not found" });
+    }
+
+    // Create command in Appwrite commands collection
+    const command = await db.createDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_COMMANDS_COLLECTION || "commands",
+      ID.unique(),
+      {
+        slug: Number(slug),
+        command_type,
+        payload: JSON.stringify(payload || {}),
+        status: "pending",
+        created_at: new Date().toISOString(),
+        executed_at: null,
+        result: null
+      }
+    );
+
+    logInfo(`Command queued for device ${slug}: ${command_type}`);
+
+    return res.json({
+      ok: true,
+      command_id: command.$id,
+      queued_at: command.created_at
+    });
+
+  } catch (err) {
+    logError("COMMAND QUEUE ERROR:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Pi polls for pending commands
+app.get("/device/:slug/commands/pending", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ error: "Invalid slug format" });
+    }
+
+    // Get pending commands for this device
+    const commands = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_COMMANDS_COLLECTION || "commands",
+      [
+        Query.equal("slug", Number(slug)),
+        Query.equal("status", "pending"),
+        Query.orderAsc("created_at"),
+        Query.limit(10)
+      ]
+    );
+
+    // Parse JSON payload for each command
+    const parsedCommands = commands.documents.map(cmd => ({
+      ...cmd,
+      payload: JSON.parse(cmd.payload || "{}")
+    }));
+
+    return res.json({ commands: parsedCommands });
+
+  } catch (err) {
+    logError("COMMAND POLL ERROR:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Pi marks command as complete
+app.post("/device/:slug/commands/:command_id/complete", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+    const command_id = req.params.command_id;
+    const { result, success } = req.body;
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ error: "Invalid slug format" });
+    }
+
+    // Update command status
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_COMMANDS_COLLECTION || "commands",
+      command_id,
+      {
+        status: success ? "completed" : "failed",
+        executed_at: new Date().toISOString(),
+        result: result || "No result"
+      }
+    );
+
+    logInfo(`Command ${command_id} marked as ${success ? 'completed' : 'failed'}`);
+
+    return res.json({ ok: true });
+
+  } catch (err) {
+    logError("COMMAND COMPLETE ERROR:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT;
