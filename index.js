@@ -228,6 +228,12 @@ app.get("/chat/:slug", async (req, res) => {
   }
 });
 
+// ---------------- NO-OP GET ----------------
+// Accepts any query params but intentionally does nothing with them.
+app.get("/noop", (req, res) => {
+  return res.json({ ok: true });
+});
+
 // ---------------- GOOGLE OAUTH START ----------------
 app.get("/auth/google/start/:slug", async (req, res) => {
   try {
