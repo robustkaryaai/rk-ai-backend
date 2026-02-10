@@ -38,7 +38,7 @@ ${userPrompt}
 `;
 
     const response = await genAI.models.generateContent({
-      model: "gemma-3-12b-it",
+      model: "gemini-2.5-flash",
       contents: finalPrompt
     });
     console.log("💬 Gemini Response:", response.text?.trim().substring(0, 100) + "...");
