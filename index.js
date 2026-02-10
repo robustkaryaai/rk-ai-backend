@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { logInfo, logError } from "./utils/logger.js";
 import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug } from "./services/appwriteClient.js";
 import { db } from "./services/appwriteClient.js";
+import { Query, ID } from "node-appwrite";
 import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
 import { ensureLimitFile } from "./limitManager.js";
 import { callGemini } from "./services/gemini.js";
