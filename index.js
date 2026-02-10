@@ -613,7 +613,7 @@ app.get("/device/:slug/commands/pending", async (req, res) => {
       [
         Query.equal("slug", Number(slug)),
         Query.equal("status", "pending"),
-        Query.orderAsc("created_at"),
+        Query.orderAsc("$createdAt"),
         Query.limit(10)
       ]
     );

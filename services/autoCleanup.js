@@ -22,7 +22,7 @@ export async function enforceStorageRules(slug) {
       .from("files")
       .select("*")
       .eq("slug", slug)
-      .order("created_at", { ascending: true });
+      .order("$createdAt", { ascending: true });
 
     let deleted = 0;
 
