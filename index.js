@@ -105,6 +105,56 @@ User: "set alarm for 8 AM"
 
 Now only output JSON following the schema and rules.`;
 
+// ---------------- DESKTOP AUTH PROXY ----------------
+app.post("/desktop/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Call Appwrite REST API dirctly to bypass Desktop CORS/Platform limits
+    const response = await fetch(`${process.env.APPWRITE_ENDPOINT}/account/sessions/email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
+      },
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.message });
+    }
+
+    return res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/desktop/signup", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const response = await fetch(`${process.env.APPWRITE_ENDPOINT}/account`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Appwrite-Project": process.env.APPWRITE_PROJECT_ID,
+      },
+      body: JSON.stringify({ userId: "unique()", email, password })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.message });
+    }
+
+    return res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------------- TEXT ROUTE ----------------
 app.post("/text/:slug", async (req, res) => {
   try {
