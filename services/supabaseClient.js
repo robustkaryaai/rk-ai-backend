@@ -145,7 +145,7 @@ export async function saveFileToSlug(
             const quotaBytes = aboutJson.storageQuota?.limit || 0;
             const usedBytes = aboutJson.storageQuota?.usage || 0;
             const availableBytes = quotaBytes - usedBytes;
-            
+
             if (availableBytes < buffer.length) {
               throw new Error(`Google Drive: No space available. Need ${buffer.length} bytes, have ${availableBytes} bytes`);
             }
@@ -244,7 +244,7 @@ export async function downloadFileFromSlug(slug, filename) {
   try {
     const safeSlug = String(slug);
     const user = await getUserPlanBySlug(safeSlug);
-    
+
     if (!user) {
       logError(`[Download] User not found for slug: ${slug}`);
       return null;
@@ -380,6 +380,50 @@ export async function fileExists(slug, filename) {
   } catch (err) {
     logError("fileExists error:", err.message || err);
     return false;
+  }
+}
+
+// ---------------- CLEANUP OLD SUPABASE FILES ----------------
+export async function cleanupSupabaseFiles(slug, tier) {
+  try {
+    const safeSlug = String(slug);
+
+    // Retention defined in hours (Privacy focused)
+    const RETENTION_HOURS = {
+      free: 24,
+      student: 24,
+      creator: 24,
+      pro: 24 * 7, // 7 days
+      studio: 24 * 30 // 30 days
+    };
+
+    const maxAgeHours = RETENTION_HOURS[tier] || 24;
+    const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+    const now = Date.now();
+
+    const { data, error } = await supabase
+      .storage
+      .from(BUCKET)
+      .list(safeSlug, { limit: 1000 });
+
+    if (error || !data) return;
+
+    const toDelete = [];
+    for (const file of data) {
+      if (file.name === 'chat.txt' || file.name === '.emptyFolderPlaceholder') continue;
+
+      const fileTime = new Date(file.created_at).getTime();
+      if (now - fileTime > maxAgeMs) {
+        toDelete.push(`${safeSlug}/${file.name}`);
+      }
+    }
+
+    if (toDelete.length > 0) {
+      await supabase.storage.from(BUCKET).remove(toDelete);
+      logInfo(`[Cleanup] Deleted ${toDelete.length} old files from Supabase for slug ${safeSlug} (Tier: ${tier})`);
+    }
+  } catch (err) {
+    logError("cleanupSupabaseFiles error:", err.message || err);
   }
 }
 

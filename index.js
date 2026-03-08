@@ -6,9 +6,10 @@ import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug } from "./serv
 import { db } from "./services/appwriteClient.js";
 import { Query, ID } from "node-appwrite";
 import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
-import { ensureLimitFile } from "./limitManager.js";
+import { checkAndConsume, ensureLimitFile } from "./limitManager.js";
 import { callGemini } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
+import { cleanupSupabaseFiles } from "./services/supabaseClient.js";
 // voice transcription removed — text-only processing
 
 dotenv.config();
@@ -455,6 +456,34 @@ app.post("/device/ensure/:slug", async (req, res) => {
 });
 
 // ---------------- DEVICE AUTHENTICATION & CONTROL ----------------
+
+// ---------------- DEVICE MAINTENANCE ----------------
+// Pi polls this every 2 minutes for background tasks (cleanup, etc.)
+app.get("/device/:slug/maintenance", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+
+    if (!/^\d{9}$/.test(slug)) {
+      return res.status(400).json({ error: "Invalid slug format" });
+    }
+
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "Device not found" });
+
+    const tierNum = device.subscription === "true" ? Number(device["subscription-tier"] || 0) : 0;
+    const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio" };
+    const tierName = tierMap[tierNum] || "free";
+
+    // Clean up Supabase files based on tier privacy policy
+    await cleanupSupabaseFiles(slug, tierName);
+
+    return res.json({ ok: true, message: "Maintenance complete" });
+
+  } catch (err) {
+    logError("MAINTENANCE ERROR:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
 
 // Verify device password
 app.post("/device/:slug/verify", async (req, res) => {
