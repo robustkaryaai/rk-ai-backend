@@ -462,13 +462,18 @@ app.post("/device/ensure/:slug", async (req, res) => {
 app.get("/device/:slug/maintenance", async (req, res) => {
   try {
     const slug = String(req.params.slug);
+    console.log(`[Maintenance] Ping received for device: ${slug}`);
 
     if (!/^\d{9}$/.test(slug)) {
+      console.warn(`[Maintenance] Rejected: Invalid slug format (${slug})`);
       return res.status(400).json({ error: "Invalid slug format" });
     }
 
     const device = await getUserPlanBySlug(slug);
-    if (!device) return res.status(404).json({ error: "Device not found" });
+    if (!device) {
+      console.warn(`[Maintenance] Rejected: Device not found in Appwrite (${slug})`);
+      return res.status(404).json({ error: "Device not found" });
+    }
 
     const tierNum = device.subscription === "true" ? Number(device["subscription-tier"] || 0) : 0;
     const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio" };
@@ -476,6 +481,7 @@ app.get("/device/:slug/maintenance", async (req, res) => {
 
     // Clean up Supabase files based on tier privacy policy
     await cleanupSupabaseFiles(slug, tierName);
+    console.log(`[Maintenance] Completed successfully for device: ${slug} (Tier: ${tierName})`);
 
     return res.json({ ok: true, message: "Maintenance complete" });
 
