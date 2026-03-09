@@ -116,8 +116,8 @@ app.get("/device/:slug/status", (req, res) => {
   const lastSeen = deviceLastSeen.get(slug);
   const now = Date.now();
 
-  // Consider offline if no ping in the last 30 seconds
-  const isOnline = lastSeen && (now - lastSeen < 30000);
+  // Consider offline if no ping in the last 90 seconds (Pi needs time to reboot after Wi-Fi setup)
+  const isOnline = lastSeen && (now - lastSeen < 90000);
 
   return res.json({
     slug,
