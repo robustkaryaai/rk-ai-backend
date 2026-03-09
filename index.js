@@ -106,6 +106,26 @@ User: "set alarm for 8 AM"
 
 Now only output JSON following the schema and rules.`;
 
+// ---------------- DEVICE PRESENCE TRACKING ----------------
+const deviceLastSeen = new Map();
+
+app.get("/device/:slug/status", (req, res) => {
+  const slug = String(req.params.slug);
+  if (!slug) return res.status(400).json({ error: "No slug provided" });
+
+  const lastSeen = deviceLastSeen.get(slug);
+  const now = Date.now();
+
+  // Consider offline if no ping in the last 30 seconds
+  const isOnline = lastSeen && (now - lastSeen < 30000);
+
+  return res.json({
+    slug,
+    status: isOnline ? "online" : "offline",
+    lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null
+  });
+});
+
 // ---------------- DESKTOP AUTH PROXY ----------------
 app.post("/desktop/login", async (req, res) => {
   try {
@@ -690,6 +710,9 @@ app.get("/device/:slug/commands/pending", async (req, res) => {
     if (!/^\d{9}$/.test(slug)) {
       return res.status(400).json({ error: "Invalid slug format" });
     }
+
+    // Record the fact that this device natively polled the server right now
+    deviceLastSeen.set(slug, Date.now());
 
     // Get pending commands for this device
     const commands = await db.listDocuments(
