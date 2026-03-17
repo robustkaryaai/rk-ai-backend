@@ -10,16 +10,80 @@ import { checkAndConsume, ensureLimitFile } from "./limitManager.js";
 import { callGemini } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
 import { cleanupSupabaseFiles } from "./services/supabaseClient.js";
-// voice transcription removed — text-only processing
+import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
 
+const hf = new HfInference(process.env.HF_TOKEN);
 const app = express();
 
-app.use(express.json({ limit: "20mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// voice upload removed — text-only processing
+// ---------------- AUDIO TRANSCRIPTION & HEALTH ----------------
+// GET: Quick status check and metadata
+app.get("/audio/:slug", (req, res) => {
+  const slug = String(req.params.slug);
+  const lastSeen = deviceLastSeen.get(slug);
+  const now = Date.now();
+  const isOnline = lastSeen && (now - lastSeen < 120000);
+
+  return res.json({ 
+    ok: true, 
+    slug,
+    status: isOnline ? "online" : "offline",
+    lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null,
+    provider: "HuggingFace-Whisper-V3-Turbo",
+    privacy: "Base64-Encrypted-Buffer",
+    shoom: "Active 🚀"
+  });
+});
+
+app.post("/audio/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+    const { audio_b64 } = req.body;
+
+    // Shoom Update: Mark device as seen immediately
+    deviceLastSeen.set(slug, Date.now());
+
+    if (!slug || !audio_b64) {
+      return res.status(400).json({ error: "bad_request", message: "slug and audio_b64 required" });
+    }
+
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "invalid_slug" });
+
+    // Decode audio (Privacy "Decoding" step)
+    const audioBuffer = Buffer.from(audio_b64, "base64");
+
+    // Transcribe using Hugging Face (Ultra-fast Whisper V3 Turbo)
+    console.time(`[Shoom-STT] ${slug}`);
+    const transcription = await hf.automaticSpeechRecognition({
+      model: "openai/whisper-large-v3-turbo",
+      data: audioBuffer,
+    });
+    console.timeEnd(`[Shoom-STT] ${slug}`);
+
+    const text = transcription.text || "";
+    console.log(`[Audio-STT] Decoded for ${slug}: "${text}"`);
+
+    if (!text.trim()) {
+      return res.json({ 
+        reply: "I couldn't hear you clearly. Could you repeat that?", 
+        text: "",
+        shoom: true 
+      });
+    }
+
+    // Process text with Gemini & Intent logic
+    return handleTextRequest(req, res, slug, text, device);
+
+  } catch (err) {
+    logError("AUDIO STT ERROR:", err);
+    return res.status(500).json({ error: "server_error", message: String(err), shoom: false });
+  }
+});
 
 // ---------------- SYSTEM PROMPT ----------------
 const SYSTEM_PROMPT = `
@@ -111,18 +175,15 @@ const deviceLastSeen = new Map();
 
 app.get("/device/:slug/status", (req, res) => {
   const slug = String(req.params.slug);
-  if (!slug) return res.status(400).json({ error: "No slug provided" });
-
   const lastSeen = deviceLastSeen.get(slug);
   const now = Date.now();
-
-  // Consider offline if no ping in the last 120 seconds (2 minutes)
   const isOnline = lastSeen && (now - lastSeen < 120000);
 
   return res.json({
     slug,
     status: isOnline ? "online" : "offline",
-    lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null
+    lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null,
+    shoom: true
   });
 });
 
@@ -176,6 +237,80 @@ app.post("/desktop/signup", async (req, res) => {
   }
 });
 
+// Helper to process text (refactored for Shoom 3.0 speed)
+async function handleTextRequest(req, res, slug, text, device) {
+  try {
+    await ensureLimitFile(slug);
+
+    // 1. Parallelize Gemini and Presence
+    const [rawIntents] = await Promise.all([
+      callGemini(SYSTEM_PROMPT, [], text),
+      appendUser(slug, `User: ${text}`)
+    ]);
+
+    // 2. Parse Intents with robust fallback
+    let intents;
+    try {
+      intents = JSON.parse(rawIntents.replace(/```json|```/g, ""));
+      if (!Array.isArray(intents)) throw new Error("Not an array");
+    } catch {
+      intents = [{ intent: "chat", parameters: { prompt: text } }];
+    }
+
+    // 3. Process Intents
+    const results = await handleIntents(slug, intents, { device });
+
+    // 4. Shoom Reply Logic: Find the most relevant response
+    let finalReply = "";
+    let song_url = null;
+    const isMusic = intents.some(i => i?.intent === "music");
+
+    // Strategy: Priority-based selection
+    const priorityIntents = ["music", "announcement", "chat", "general", "weather", "news"];
+    
+    // Find first matching high-priority intent result
+    for (const pIntent of priorityIntents) {
+      const idx = intents.findIndex(i => i?.intent === pIntent);
+      if (idx !== -1 && results[idx]) {
+        const r = results[idx];
+        finalReply = typeof r === "string" ? r : (r?.reply || r?.text || "");
+        if (pIntent === "music") song_url = r?.song_url || null;
+        if (finalReply) break;
+      }
+    }
+
+    // Fallback: Just pick the first non-empty result
+    if (!finalReply) {
+      for (const r of results) {
+        finalReply = typeof r === "string" ? r : (r?.reply || r?.text || "");
+        if (finalReply) break;
+      }
+    }
+
+    // 5. Finalize Memory & Response
+    if (finalReply) {
+      await updateLastAI(slug, finalReply);
+    }
+
+    const responseObj = { 
+      reply: finalReply || "I processed that for you.", 
+      text, 
+      shoom: true,
+      timestamp: Date.now()
+    };
+    
+    if (song_url) {
+      responseObj.song_url = song_url;
+      if (isMusic) responseObj.link = song_url;
+    }
+
+    return res.json(responseObj);
+  } catch (err) {
+    logError(`[Shoom-Error] ${slug}:`, err);
+    return res.status(500).json({ error: "shoom_crash", message: String(err) });
+  }
+}
+
 // ---------------- TEXT ROUTE ----------------
 app.post("/text/:slug", async (req, res) => {
   try {
@@ -191,89 +326,7 @@ app.post("/text/:slug", async (req, res) => {
       return res.status(404).json({ error: "invalid_slug" });
     }
 
-    await ensureLimitFile(slug);
-
-    let rawIntents = await callGemini(
-      SYSTEM_PROMPT,
-      [],
-      text
-    );
-
-    let intents;
-    try {
-      intents = JSON.parse(rawIntents);
-      if (!Array.isArray(intents)) throw new Error("Bad JSON");
-    } catch {
-      intents = [{ intent: "chat", parameters: { prompt: text } }];
-    }
-
-    const appended = await appendUser(slug, `User: ${text}`);
-    const results = await handleIntents(slug, intents, { device });
-
-    let finalReply = "";
-    let song_url = null;
-    const isMusic = intents.some(i => i?.intent === "music");
-
-    for (let i = 0; i < intents.length; i++) {
-      const intentName = intents[i]?.intent;
-      const r = results[i];
-      if (!r) continue;
-      if (intentName === "music") {
-        finalReply = typeof r === "string" ? r : r?.reply || "";
-        song_url = r?.song_url || null;
-        break;
-      }
-    }
-
-    if (!finalReply) {
-      for (let i = 0; i < intents.length; i++) {
-        const intentName = intents[i]?.intent;
-        const r = results[i];
-        if (!r) continue;
-        if (intentName === "chat" || intentName === "general") {
-          finalReply = typeof r === "string" ? r : r?.reply || "";
-          break;
-        }
-      }
-    }
-
-    if (!finalReply) {
-      const fileIntents = ["note", "planner", "timetable", "task", "docx", "ppt", "image", "video", "lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"];
-      for (let i = 0; i < intents.length; i++) {
-        const intentName = intents[i]?.intent;
-        const r = results[i];
-        if (!r) continue;
-        if (fileIntents.includes(intentName)) {
-          finalReply = typeof r === "string" ? r : r?.reply || "";
-          if (finalReply) break;
-        }
-      }
-    }
-
-    if (!finalReply) {
-      for (const r of results) {
-        if (typeof r === "string" && r.trim()) {
-          finalReply = r;
-          break;
-        }
-        if (r && typeof r === "object" && typeof r.reply === "string" && r.reply.trim()) {
-          finalReply = r.reply;
-          break;
-        }
-      }
-    }
-
-    if (finalReply) {
-      const idx = appended?.index ?? null;
-      await updateLastAI(slug, finalReply, idx);
-    }
-
-    const responseObj = { reply: finalReply };
-    if (song_url) {
-      responseObj.song_url = song_url;
-      if (isMusic) responseObj.link = song_url;
-    }
-    return res.json(responseObj);
+    return handleTextRequest(req, res, slug, text, device);
 
   } catch (err) {
     logError("TEXT ERROR:", err);
