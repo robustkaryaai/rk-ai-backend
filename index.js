@@ -116,8 +116,8 @@ app.get("/device/:slug/status", (req, res) => {
   const lastSeen = deviceLastSeen.get(slug);
   const now = Date.now();
 
-  // Consider offline if no ping in the last 90 seconds (Pi needs time to reboot after Wi-Fi setup)
-  const isOnline = lastSeen && (now - lastSeen < 90000);
+  // Consider offline if no ping in the last 120 seconds (2 minutes)
+  const isOnline = lastSeen && (now - lastSeen < 120000);
 
   return res.json({
     slug,
@@ -478,7 +478,7 @@ app.post("/device/ensure/:slug", async (req, res) => {
 // ---------------- DEVICE AUTHENTICATION & CONTROL ----------------
 
 // ---------------- DEVICE MAINTENANCE ----------------
-// Pi polls this every 2 minutes for background tasks (cleanup, etc.)
+// Pi polls this every 1 minute for background tasks (cleanup, etc.)
 app.get("/device/:slug/maintenance", async (req, res) => {
   try {
     const slug = String(req.params.slug);
@@ -488,6 +488,9 @@ app.get("/device/:slug/maintenance", async (req, res) => {
       console.warn(`[Maintenance] Rejected: Invalid slug format (${slug})`);
       return res.status(400).json({ error: "Invalid slug format" });
     }
+
+    // Update last seen timestamp
+    deviceLastSeen.set(slug, Date.now());
 
     const device = await getUserPlanBySlug(slug);
     if (!device) {
