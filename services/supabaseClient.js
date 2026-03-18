@@ -406,15 +406,21 @@ export async function cleanupSupabaseFiles(slug, tier) {
       .from(BUCKET)
       .list(safeSlug, { limit: 1000 });
 
-    if (error || !data) return;
+    if (error || !data) return 0;
 
     const toDelete = [];
+    let currentTotalSize = 0;
+
     for (const file of data) {
-      if (file.name === 'chat.txt' || file.name === '.emptyFolderPlaceholder') continue;
+      const fileSize = file.metadata?.size || 0;
+      currentTotalSize += fileSize;
+
+      if (file.name === 'chat.txt' || file.name === 'limit.txt' || file.name === '.emptyFolderPlaceholder') continue;
 
       const fileTime = new Date(file.created_at).getTime();
       if (now - fileTime > maxAgeMs) {
         toDelete.push(`${safeSlug}/${file.name}`);
+        currentTotalSize -= fileSize;
       }
     }
 
@@ -422,17 +428,33 @@ export async function cleanupSupabaseFiles(slug, tier) {
       await supabase.storage.from(BUCKET).remove(toDelete);
       logInfo(`[Cleanup] Deleted ${toDelete.length} old files from Supabase for slug ${safeSlug} (Tier: ${tier})`);
     }
+
+    return currentTotalSize / (1024 * 1024); // Return remaining size in MB
   } catch (err) {
     logError("cleanupSupabaseFiles error:", err.message || err);
+    return 0;
   }
 }
 
-// ---------------- GET TOTAL STORAGE USED (LOCAL CACHE ONLY) ----------------
+// ---------------- GET TOTAL STORAGE USED (SUPABASE BUCKET) ----------------
 export async function getSlugStorageUsed(slug) {
   try {
-    const localFolder = path.join(MEMORY_ROOT, `slug-${slug}`);
-    ensureFolder(localFolder);
-    return getFolderSize(localFolder) / (1024 * 1024);
+    const safeSlug = String(slug);
+    const { data, error } = await supabase
+      .storage
+      .from(BUCKET)
+      .list(safeSlug, { limit: 1000 });
+
+    if (error || !data) return 0;
+    
+    let totalBytes = 0;
+    for (const file of data) {
+      totalBytes += file.metadata?.size || 0;
+    }
+    
+    const sizeMB = totalBytes / (1024 * 1024);
+    logInfo(`[Storage] ${safeSlug} is using ${sizeMB.toFixed(2)} MB in Supabase.`);
+    return sizeMB;
 
   } catch (err) {
     logError("getSlugStorageUsed error:", err.message || err);

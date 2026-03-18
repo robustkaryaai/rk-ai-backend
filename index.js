@@ -251,6 +251,17 @@ async function handleTextRequest(req, res, slug, text, device) {
     const normSlug = normalizeSlug(slug);
     await ensureLimitFile(normSlug);
 
+    // 0. Handle LOCAL_INTENT_SYNC from Assistant (to store in Supabase without classifying again)
+    if (text.startsWith("LOCAL_INTENT_SYNC:")) {
+      console.log(`[Sync] Received local sync from assistant: ${text}`);
+      const parts = text.replace("LOCAL_INTENT_SYNC:", "").split("| AI:");
+      const userMsg = parts[0]?.trim() || "User command";
+      const aiReply = parts[1]?.trim() || "Processed locally";
+      
+      await appendChat(normSlug, userMsg, aiReply);
+      return res.json({ ok: true, synced: true });
+    }
+
     // 1. Parallelize Gemini and Presence
     const [rawIntents] = await Promise.all([
       callGemini(SYSTEM_PROMPT, [], text),
@@ -547,9 +558,9 @@ app.post("/device/ensure/:slug", async (req, res) => {
 app.get("/device/:slug/maintenance", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
-    console.log(`[Maintenance] Ping received for device: ${slug}`);
+    console.log(`[Maintenance] Maintenance started for device: ${slug}`);
 
-    // Update last seen timestamp
+    // 1. Update last seen timestamp
     deviceLastSeen.set(slug, Date.now());
 
     const device = await getUserPlanBySlug(slug);
@@ -562,11 +573,25 @@ app.get("/device/:slug/maintenance", async (req, res) => {
     const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio" };
     const tierName = tierMap[tierNum] || "free";
 
-    // Clean up Supabase files based on tier privacy policy
-    await cleanupSupabaseFiles(slug, tierName);
-    console.log(`[Maintenance] Completed successfully for device: ${slug} (Tier: ${tierName})`);
+    // 2. Refresh Daily Limits (24h refresh check)
+    await ensureLimitFile(slug);
 
-    return res.json({ ok: true, message: "Maintenance complete" });
+    // 3. Check Storage Space in Supabase
+    const storageUsedMB = await cleanupSupabaseFiles(slug, tierName);
+    const storageInfo = {
+      usedMB: storageUsedMB || 0,
+      tier: tierName,
+      lastSeen: new Date().toISOString()
+    };
+
+    console.log(`[Maintenance] Completed for ${slug}. Storage: ${storageInfo.usedMB.toFixed(2)}MB, Tier: ${tierName}`);
+
+    return res.json({ 
+      ok: true, 
+      message: "Maintenance complete",
+      storage: storageInfo,
+      shoom: "⚡"
+    });
 
   } catch (err) {
     logError("MAINTENANCE ERROR:", err);

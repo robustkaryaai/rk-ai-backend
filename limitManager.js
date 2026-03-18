@@ -24,7 +24,17 @@ function todayKey() {
 export async function ensureLimitFile(slug) {
   let limits = (await loadLimit(slug)) || {};
   const t = todayKey();
+  
+  // Refresh if today's key doesn't exist (24h refresh)
   if (!limits[t]) {
+    logInfo(`[Limits] Refreshing 24h limits for ${slug}. New day: ${t}`);
+    
+    // Optional: Keep a history of last 7 days only to save space
+    const keys = Object.keys(limits).sort();
+    if (keys.length > 7) {
+      delete limits[keys[0]];
+    }
+    
     limits[t] = { ...DEFAULT_DAILY };
     await saveLimit(slug, limits);
   }
