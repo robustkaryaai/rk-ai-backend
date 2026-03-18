@@ -88,7 +88,10 @@ app.post("/audio/:slug", async (req, res) => {
     }
 
     // Process text with Gemini & Intent logic
-    return handleTextRequest(req, res, slug, text, device);
+    deviceBusyState.set(slug, true); // 🚀 Mark as busy when starting AI process
+    const result = await handleTextRequest(req, res, slug, text, device);
+    deviceBusyState.set(slug, false); // 🚀 Clear busy state when done
+    return result;
 
   } catch (err) {
     logError("AUDIO STT ERROR:", err);
@@ -180,6 +183,7 @@ Now only output JSON following the schema and rules.`;
 
 // ---------------- DEVICE PRESENCE TRACKING ----------------
 const deviceLastSeen = new Map();
+const deviceBusyState = new Map(); // 🚀 Track explicit processing state
 
 // Helper to normalize slug to 9-digit string
 const normalizeSlug = (slug) => {
@@ -192,6 +196,7 @@ app.get("/device/:slug/status", (req, res) => {
   const rawSlug = req.params.slug;
   const slug = normalizeSlug(rawSlug);
   const lastSeen = deviceLastSeen.get(slug);
+  const isBusy = deviceBusyState.get(slug) || false; // 🚀 Get explicit busy state
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
 
@@ -200,6 +205,7 @@ app.get("/device/:slug/status", (req, res) => {
     status: isOnline ? "online" : "offline",
     lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null,
     diffSeconds: lastSeen ? Math.floor((now - lastSeen) / 1000) : null,
+    isBusy, // 🚀 Send explicit busy signal
     shoom: true,
     debug_raw_now: now,
     debug_raw_lastSeen: lastSeen || 0
