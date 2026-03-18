@@ -23,10 +23,10 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 // ---------------- AUDIO TRANSCRIPTION & HEALTH ----------------
 // GET: Quick status check and metadata
 app.get("/audio/:slug", (req, res) => {
-  const slug = String(req.params.slug);
+  const slug = normalizeSlug(req.params.slug);
   const lastSeen = deviceLastSeen.get(slug);
   const now = Date.now();
-  const isOnline = lastSeen && (now - lastSeen < 120000);
+  const isOnline = lastSeen && (now - lastSeen < 180000);
 
   return res.json({ 
     ok: true, 
@@ -41,7 +41,7 @@ app.get("/audio/:slug", (req, res) => {
 
 app.post("/audio/:slug", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
     const { audio_b64 } = req.body;
 
     // Shoom Update: Mark device as seen immediately
@@ -173,16 +173,27 @@ Now only output JSON following the schema and rules.`;
 // ---------------- DEVICE PRESENCE TRACKING ----------------
 const deviceLastSeen = new Map();
 
+// Helper to normalize slug to 9-digit string
+const normalizeSlug = (slug) => {
+  if (!slug) return "";
+  const s = String(slug);
+  return s.padStart(9, '0');
+};
+
 app.get("/device/:slug/status", (req, res) => {
-  const slug = String(req.params.slug);
+  const rawSlug = req.params.slug;
+  const slug = normalizeSlug(rawSlug);
   const lastSeen = deviceLastSeen.get(slug);
   const now = Date.now();
-  const isOnline = lastSeen && (now - lastSeen < 120000);
+  const isOnline = lastSeen && (now - lastSeen < 180000);
+
+  console.log(`[Status-Check] Slug: ${slug} (Raw: ${rawSlug}), Online: ${isOnline}, LastSeen: ${lastSeen ? (now - lastSeen) / 1000 : 'Never'}s ago`);
 
   return res.json({
     slug,
     status: isOnline ? "online" : "offline",
     lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null,
+    diffSeconds: lastSeen ? Math.floor((now - lastSeen) / 1000) : null,
     shoom: true
   });
 });
@@ -240,13 +251,17 @@ app.post("/desktop/signup", async (req, res) => {
 // Helper to process text (refactored for Shoom 3.0 speed)
 async function handleTextRequest(req, res, slug, text, device) {
   try {
-    await ensureLimitFile(slug);
+    const normSlug = normalizeSlug(slug);
+    await ensureLimitFile(normSlug);
 
     // 1. Parallelize Gemini and Presence
     const [rawIntents] = await Promise.all([
       callGemini(SYSTEM_PROMPT, [], text),
-      appendUser(slug, `User: ${text}`)
+      appendUser(normSlug, `User: ${text}`)
     ]);
+    
+    // Mark seen on text request too
+    deviceLastSeen.set(normSlug, Date.now());
 
     // 2. Parse Intents with robust fallback
     let intents;
@@ -258,7 +273,7 @@ async function handleTextRequest(req, res, slug, text, device) {
     }
 
     // 3. Process Intents
-    const results = await handleIntents(slug, intents, { device });
+    const results = await handleIntents(normSlug, intents, { device });
 
     // 4. Shoom Reply Logic: Find the most relevant response
     let finalReply = "";
@@ -289,7 +304,7 @@ async function handleTextRequest(req, res, slug, text, device) {
 
     // 5. Finalize Memory & Response
     if (finalReply) {
-      await updateLastAI(slug, finalReply);
+      await updateLastAI(normSlug, finalReply);
     }
 
     const responseObj = { 
@@ -314,7 +329,7 @@ async function handleTextRequest(req, res, slug, text, device) {
 // ---------------- TEXT ROUTE ----------------
 app.post("/text/:slug", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
     const text = String(req.body?.text || "").trim();
 
     if (!slug || !text) {
@@ -340,7 +355,7 @@ app.post("/text/:slug", async (req, res) => {
 // ---------------- CHAT HISTORY ----------------
 app.get("/chat/:slug", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
 
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "invalid_slug" });
@@ -493,7 +508,7 @@ app.get("/auth/google/callback", async (req, res) => {
 
 app.get("/device/check/:slug", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
 
     if (!/^\d{9}$/.test(slug)) {
       return res.status(400).json({ error: "invalid_slug_format" });
@@ -509,7 +524,7 @@ app.get("/device/check/:slug", async (req, res) => {
 });
 app.post("/device/ensure/:slug", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
 
     if (!/^\d{9}$/.test(slug)) {
       return res.status(400).json({ error: "invalid_slug_format" });
@@ -534,13 +549,8 @@ app.post("/device/ensure/:slug", async (req, res) => {
 // Pi polls this every 1 minute for background tasks (cleanup, etc.)
 app.get("/device/:slug/maintenance", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
     console.log(`[Maintenance] Ping received for device: ${slug}`);
-
-    if (!/^\d{9}$/.test(slug)) {
-      console.warn(`[Maintenance] Rejected: Invalid slug format (${slug})`);
-      return res.status(400).json({ error: "Invalid slug format" });
-    }
 
     // Update last seen timestamp
     deviceLastSeen.set(slug, Date.now());
@@ -570,7 +580,7 @@ app.get("/device/:slug/maintenance", async (req, res) => {
 // Verify device password
 app.post("/device/:slug/verify", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
     const { password } = req.body;
 
     if (!/^\d{9}$/.test(slug)) {
@@ -614,7 +624,7 @@ app.post("/device/:slug/verify", async (req, res) => {
 // Toggle device mute state
 app.post("/device/:slug/mute", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
     const { muted } = req.body;
 
     if (!/^\d{9}$/.test(slug)) {
@@ -659,7 +669,7 @@ app.post("/device/:slug/mute", async (req, res) => {
 // Toggle device memory state
 app.post("/device/:slug/memory", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
     const { enabled } = req.body;
 
     if (!/^\d{9}$/.test(slug)) {
@@ -706,7 +716,7 @@ app.post("/device/:slug/memory", async (req, res) => {
 // Queue a command for Pi to execute
 app.post("/device/:slug/command", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
     const { command_type, payload } = req.body;
 
     if (!/^\d{9}$/.test(slug)) {
@@ -761,11 +771,7 @@ app.post("/device/:slug/command", async (req, res) => {
 // Pi polls for pending commands
 app.get("/device/:slug/commands/pending", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
-
-    if (!/^\d{9}$/.test(slug)) {
-      return res.status(400).json({ error: "Invalid slug format" });
-    }
+    const slug = normalizeSlug(req.params.slug);
 
     // Record the fact that this device natively polled the server right now
     deviceLastSeen.set(slug, Date.now());
@@ -799,7 +805,7 @@ app.get("/device/:slug/commands/pending", async (req, res) => {
 // Pi marks command as complete
 app.post("/device/:slug/commands/:command_id/complete", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
+    const slug = normalizeSlug(req.params.slug);
     const command_id = req.params.command_id;
     const { result, success } = req.body;
 
@@ -829,6 +835,33 @@ app.post("/device/:slug/commands/:command_id/complete", async (req, res) => {
   }
 });
 
+
+// ---------------- HEALTH & ROOT ----------------
+app.get("/health", (req, res) => {
+  return res.json({ status: "healthy", timestamp: new Date().toISOString(), version: "3.0.0", shoom: true });
+});
+
+app.get("/", (req, res) => {
+  return res.send("<h1>🚀 RK AI Backend v3.0.0</h1><p>Shoom mode active.</p>");
+});
+
+// Shoom Debug: See all registered devices
+app.get("/shoom/debug/devices", (req, res) => {
+  const devices = {};
+  const now = Date.now();
+  for (const [slug, lastSeen] of deviceLastSeen.entries()) {
+    devices[slug] = {
+      lastSeen: new Date(lastSeen).toISOString(),
+      diffSeconds: Math.floor((now - lastSeen) / 1000),
+      online: (now - lastSeen < 180000)
+    };
+  }
+  return res.json({
+    count: deviceLastSeen.size,
+    threshold: "180s",
+    devices
+  });
+});
 
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT;
