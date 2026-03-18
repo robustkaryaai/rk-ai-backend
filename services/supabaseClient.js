@@ -399,6 +399,26 @@ export async function downloadFileFromSlug(slug, filename) {
   }
 }
 
+// ---------------- GET STORAGE USED ----------------
+export async function getSlugStorageUsed(slug) {
+  try {
+    const safeSlug = String(slug);
+    const { data, error } = await supabase.storage.from(BUCKET).list(safeSlug);
+    if (error || !data) return 0;
+
+    let totalSize = 0;
+    for (const file of data) {
+      if (file.metadata && file.metadata.size) {
+        totalSize += file.metadata.size;
+      }
+    }
+    return totalSize / (1024 * 1024); // Return total size in MB
+  } catch (err) {
+    logError("getSlugStorageUsed error:", err.message || err);
+    return 0;
+  }
+}
+
 // ---------------- CHECK FILE EXISTS ----------------
 export async function fileExists(slug, filename) {
   try {
