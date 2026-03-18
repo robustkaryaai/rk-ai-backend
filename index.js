@@ -104,13 +104,10 @@ INTENTS
 - period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music.
 
 STRICT CLASSIFICATION RULES
-1) If the user uses generative verbs (generate/make/create/render/build) with a media noun:
-   - Mentions video nouns (video/clip/short/episode/animation): intent = "video".
-   - Mentions image nouns (image/picture/photo/thumbnail/poster/art): intent = "image".
-   - Mentions slides/ppt/presentation: intent = "ppt".
-   - Mentions document/report/essay/study notes: intent = "docx".
-   Never default to "chat" if a generative intent is implied.
-2) If the user says play/start music/song/background sound → intent = "music" (NOT video).
+1) Generative intents (image, video, docx, ppt, note, planner, timetable, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note) MUST ONLY be triggered if the user EXPLICITLY uses a verb like "make", "generate", "create", "build", "write", "render", or "prepare". 
+   - If the user just mentions the topic (e.g., "tell me about photosynthesis" or "photosynthesis essay"), use "chat" or "general".
+   - If the user says "make a report on photosynthesis", then use "docx".
+2) If the user says play/start music/song/background sound → intent = "music".
 3) If the user says "announce", "announcement", "broadcast", "notify everyone" → intent = "announcement".
 4) If the user says "set alarm", "wake me up at", "alarm for [time]" → intent = "alarm" and extract time.
 5) If the user mixes multiple requests, return multiple intents in a single array.
