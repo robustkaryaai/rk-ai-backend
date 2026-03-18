@@ -6,7 +6,7 @@ import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug } from "./serv
 import { db } from "./services/appwriteClient.js";
 import { Query, ID } from "node-appwrite";
 import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
-import { checkAndConsume, ensureLimitFile } from "./limitManager.js";
+import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
 import { callGemini } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
 import { cleanupSupabaseFiles } from "./services/supabaseClient.js";
@@ -394,6 +394,54 @@ app.get("/chat/:slug", async (req, res) => {
     return res.json({ chat });
   } catch (err) {
     logError("CHAT ERROR:", err);
+    return res.status(500).json({ error: "server_error" });
+  }
+});
+
+// ---------------- LIMITS CHECK ----------------
+app.get("/limits/:slug", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "invalid_slug" });
+
+    const tier = Number(device["subscription-tier"] || 0);
+    const limits = await ensureLimitFile(slug);
+    const t = new Date().toISOString().split("T")[0];
+    const todayLimits = limits[t] || { image: 0, video: 0, ppt: 0 };
+    const tierLimits = getLimitsForTier(tier);
+
+    return res.json({
+      used: todayLimits,
+      allowed: tierLimits,
+      tier
+    });
+  } catch (err) {
+    logError("LIMITS ERROR:", err);
+    return res.status(500).json({ error: "server_error" });
+  }
+});
+
+// ---------------- LIMITS CHECK ----------------
+app.get("/limits/:slug", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "invalid_slug" });
+
+    const tier = Number(device["subscription-tier"] || 0);
+    const limits = await ensureLimitFile(slug);
+    const t = new Date().toISOString().split("T")[0];
+    const todayLimits = limits[t] || { image: 0, video: 0, ppt: 0 };
+    const tierLimits = getLimitsForTier(tier);
+
+    return res.json({
+      used: todayLimits,
+      allowed: tierLimits,
+      tier
+    });
+  } catch (err) {
+    logError("LIMITS ERROR:", err);
     return res.status(500).json({ error: "server_error" });
   }
 });
