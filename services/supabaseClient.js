@@ -384,8 +384,8 @@ export async function downloadFileFromSlug(slug, filename) {
       .download(`${slug}/${filename}`);
 
     if (error) {
-      if (error.status === 404 || error.message?.includes("Object not found")) {
-        logInfo(`[Supabase Download] File ${filename} not found in Supabase (New user?).`);
+      if (error.status === 404 || error.message?.includes("Object not found") || error.name === "StorageUnknownError") {
+        logInfo(`[Supabase Download] File ${filename} not accessible (New user or Empty?).`);
         return null;
       }
       logError(`[Supabase Download] Error: ${JSON.stringify(error)}`);
