@@ -88,9 +88,9 @@ app.post("/audio/:slug", async (req, res) => {
     }
 
     // Process text with Gemini & Intent logic
-    deviceBusyState.set(slug, true); // 🚀 Mark as busy when starting AI process
+    deviceBusyState.set(slug, "thinking"); // 🚀 Mark as thinking
     const result = await handleTextRequest(req, res, slug, text, device);
-    deviceBusyState.set(slug, false); // 🚀 Clear busy state when done
+    deviceBusyState.set(slug, "idle"); // 🚀 Clear to idle
     return result;
 
   } catch (err) {
@@ -183,7 +183,7 @@ Now only output JSON following the schema and rules.`;
 
 // ---------------- DEVICE PRESENCE TRACKING ----------------
 const deviceLastSeen = new Map();
-const deviceBusyState = new Map(); // 🚀 Track explicit processing state
+const deviceBusyState = new Map(); // 🚀 Track explicit processing state (now stores strings like "thinking", "playing", "speaking")
 
 // Helper to normalize slug to 9-digit string
 const normalizeSlug = (slug) => {
@@ -196,7 +196,7 @@ app.get("/device/:slug/status", (req, res) => {
   const rawSlug = req.params.slug;
   const slug = normalizeSlug(rawSlug);
   const lastSeen = deviceLastSeen.get(slug);
-  const isBusy = deviceBusyState.get(slug) || false; // 🚀 Get explicit busy state
+  const busyState = deviceBusyState.get(slug) || "idle"; // 🚀 Get descriptive busy state
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
 
@@ -205,7 +205,8 @@ app.get("/device/:slug/status", (req, res) => {
     status: isOnline ? "online" : "offline",
     lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null,
     diffSeconds: lastSeen ? Math.floor((now - lastSeen) / 1000) : null,
-    isBusy, // 🚀 Send explicit busy signal
+    busyState, // 🚀 Send descriptive busy signal
+    isBusy: busyState !== "idle", // Backward compatibility
     shoom: true,
     debug_raw_now: now,
     debug_raw_lastSeen: lastSeen || 0
@@ -214,6 +215,20 @@ app.get("/device/:slug/status", (req, res) => {
   console.log(`[Status-Check] RAW_OUT: ${JSON.stringify(responsePayload)}`);
 
   return res.json(responsePayload);
+});
+
+// 🚀 NEW: Explicit state reporting from hardware
+app.post("/device/:slug/state", (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  const { state } = req.body; // e.g. "thinking", "speaking", "playing", "idle"
+  
+  if (!state) return res.status(400).json({ error: "state required" });
+  
+  deviceBusyState.set(slug, state);
+  deviceLastSeen.set(slug, Date.now()); // State update also acts as heartbeat
+  
+  console.log(`[Device-State] ${slug} -> ${state.toUpperCase()}`);
+  return res.json({ ok: true });
 });
 
 // ---------------- DESKTOP AUTH PROXY ----------------
