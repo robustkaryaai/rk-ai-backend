@@ -101,7 +101,7 @@ app.post("/audio/:slug", async (req, res) => {
 
 // ---------------- SYSTEM PROMPT ----------------
 const SYSTEM_PROMPT = `
-You are RK AI's intent classifier. Your job is to convert a user message into strict tool instructions.
+You are RexyCore's intent classifier. Your job is to convert a user message into strict tool instructions.
 Output must be a pure JSON array of one or more intent objects (no prose, no markdown).
 
 INTENTS
@@ -927,7 +927,8 @@ app.post("/device/:slug/command", async (req, res) => {
       ID.unique(),
       {
         slug: Number(slug),
-        command_type,
+        commandType: command_type, // 🚀 Fixed: Use commandType for Appwrite schema
+        command_type: command_type, // 🚀 Keep for backward compatibility
         payload: JSON.stringify(payload || {}),
         status: "pending",
         created_at: new Date().toISOString(),
@@ -1024,7 +1025,7 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  return res.send("<h1>🚀 RK AI Backend v3.0.0</h1><p>Shoom mode active.</p>");
+  return res.send("<h1>🚀 RexyCore Backend v3.0.0</h1><p>Shoom mode active.</p>");
 });
 
 // Shoom Debug: See all registered devices
@@ -1048,5 +1049,5 @@ app.get("/shoom/debug/devices", (req, res) => {
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT;
 app.listen(PORT, () => {
-  logInfo(`🔥 RK AI Backend Running on ${PORT}`);
+  logInfo(`🔥 RexyCore Backend Running on ${PORT}`);
 });
