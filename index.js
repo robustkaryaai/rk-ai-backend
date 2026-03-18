@@ -195,15 +195,19 @@ app.get("/device/:slug/status", (req, res) => {
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
 
-  console.log(`[Status-Check] Slug: ${slug} (Raw: ${rawSlug}), Online: ${isOnline}, LastSeen: ${lastSeen ? (now - lastSeen) / 1000 : 'Never'}s ago`);
-
-  return res.json({
+  const responsePayload = {
     slug,
     status: isOnline ? "online" : "offline",
     lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null,
     diffSeconds: lastSeen ? Math.floor((now - lastSeen) / 1000) : null,
-    shoom: true
-  });
+    shoom: true,
+    debug_raw_now: now,
+    debug_raw_lastSeen: lastSeen || 0
+  };
+
+  console.log(`[Status-Check] RAW_OUT: ${JSON.stringify(responsePayload)}`);
+
+  return res.json(responsePayload);
 });
 
 // ---------------- DESKTOP AUTH PROXY ----------------
