@@ -9,10 +9,62 @@ if (!HF_TOKEN) {
   throw new Error("HF_TOKEN environment variable is not set.");
 }
 const PIXWITH_API_KEY = process.env.PIXWITH_API_KEY;
-const VIDEO_PROVIDER = process.env.VIDEO_PROVIDER || "pixwith";
+const LTX_API_KEY = process.env.LTX_API_KEY;
+const VIDEO_PROVIDER = process.env.VIDEO_PROVIDER || "ltx";
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "user-files";
 
 export async function generateVideo(prompt, slug, tier, storageLimitMB) {
+  if (VIDEO_PROVIDER === "ltx") {
+    if (!LTX_API_KEY) {
+      throw new Error("LTX_API_KEY environment variable is not set.");
+    }
+
+    const payload = {
+      prompt,
+      model: "ltx-2-3-pro",
+      duration: 8,
+      resolution: "1920x1080"
+    };
+
+    const response = await fetch("https://api.ltx.video/v1/text-to-video", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${LTX_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      let errorMsg = `LTX API Error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMsg += ` - ${JSON.stringify(errorData)}`;
+      } catch (e) {
+        // Fallback if not JSON
+        const text = await response.text();
+        errorMsg += ` - ${text}`;
+      }
+
+      // Specific error handling based on status codes
+      switch (response.status) {
+        case 400: throw new Error(`Bad Request: ${errorMsg}`);
+        case 401: throw new Error(`Unauthorized: Check your LTX_API_KEY. ${errorMsg}`);
+        case 422: throw new Error(`Unprocessable Entity: Validation failed. ${errorMsg}`);
+        case 429: throw new Error(`Too Many Requests: Rate limit exceeded. ${errorMsg}`);
+        case 500: throw new Error(`Internal Server Error: LTX side issue. ${errorMsg}`);
+        case 503: throw new Error(`Service Unavailable: LTX is down. ${errorMsg}`);
+        case 504: throw new Error(`Gateway Timeout: LTX took too long. ${errorMsg}`);
+        default: throw new Error(errorMsg);
+      }
+    }
+
+    const buf = Buffer.from(await response.arrayBuffer());
+    const filename = generateFilename(prompt, "video", "mp4");
+    await saveFileToSlug(slug, filename, buf);
+    return { video: filename };
+  }
+
   if (VIDEO_PROVIDER === "pixwith") {
     // Choose text-to-video for Pro/Studio, fallback to image-to-video for others
     const isPro = tier === "pro" || tier === "studio";
