@@ -22,7 +22,7 @@ function switchApiKey() {
 }
 
 // ✅ Ultra-Safe Gemini Caller
-export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2) {
+export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null) {
   try {
     const historyText = Array.isArray(chatHistory)
       ? chatHistory.join("\n")
@@ -37,18 +37,28 @@ User Says:
 ${userPrompt}
 `;
 
-    const response = await genAI.models.generateContent({
-      model: "gemini-2.5-flash",
+    // Use custom API key and model if provided, otherwise fallback to system default
+    const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
+    const modelToUse = customModel || "gemini-1.5-flash"; // Default to 1.5-flash for speed
+
+    const response = await currentGenAI.models.generateContent({
+      model: modelToUse,
       contents: finalPrompt
     });
-    console.log("💬 Gemini Response:", response.text?.trim().substring(0, 100) + "...");
+    console.log(`💬 Gemini Response (${modelToUse}):`, response.text?.trim().substring(0, 100) + "...");
 
     return response.text ?? "";
 
   } catch (err) {
     const msg = err?.message || "";
+    
+    // If using custom API key, don't retry with system keys as it might violate user privacy/choice
+    if (customApiKey) {
+      logError("❌ Gemini custom key failure:", msg);
+      return `Custom AI Error: ${msg.includes("401") ? "Invalid API Key" : msg}`;
+    }
 
-    // ✅ Auto switch on 503 or suspension
+    // ✅ Auto switch on 503 or suspension for system keys
     if (
       msg.includes("503") ||
       msg.includes("overloaded") ||

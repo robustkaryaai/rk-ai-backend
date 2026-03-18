@@ -17,6 +17,17 @@ dotenv.config();
 const hf = new HfInference(process.env.HF_TOKEN);
 const app = express();
 
+// 🚀 ENHANCED CORS (Manual implementation to avoid extra dependency)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Appwrite-Project, X-Appwrite-Key");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -264,7 +275,14 @@ async function handleTextRequest(req, res, slug, text, device) {
 
     // 1. Parallelize Gemini and Presence
     const [rawIntents] = await Promise.all([
-      callGemini(SYSTEM_PROMPT, [], text),
+      callGemini(
+        SYSTEM_PROMPT, 
+        [], 
+        text, 
+        2, 
+        device.geminiApiKey || null, 
+        device.geminiModel || null
+      ),
       appendUser(normSlug, `User: ${text}`)
     ]);
     
@@ -511,6 +529,75 @@ app.get("/auth/google/callback", async (req, res) => {
   } catch (err) {
     console.error("OAuth callback error:", err);
     return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=callback_failed`);
+  }
+});
+
+// ---------------- SPOTIFY OAUTH START ----------------
+app.get("/auth/spotify/start/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug);
+    const state = encodeURIComponent(slug);
+    const params = new URLSearchParams({
+      client_id: process.env.SPOTIFY_CLIENT_ID,
+      response_type: "code",
+      redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+      scope: "user-read-private user-read-email user-modify-playback-state user-read-playback-state streaming",
+      state
+    });
+    return res.redirect(`https://accounts.spotify.com/authorize?${params.toString()}`);
+  } catch (err) {
+    return res.status(500).send(String(err));
+  }
+});
+
+// ---------------- SPOTIFY OAUTH CALLBACK ----------------
+app.get("/auth/spotify/callback", async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const slug = String(state || "");
+    if (!code || !slug) {
+      return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_error=missing_params`);
+    }
+
+    const body = new URLSearchParams();
+    body.append("code", String(code));
+    body.append("grant_type", "authorization_code");
+    body.append("redirect_uri", process.env.SPOTIFY_REDIRECT_URI);
+
+    const authHeader = Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString("base64");
+
+    const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": `Basic ${authHeader}`
+      },
+      body: body.toString()
+    });
+
+    if (!tokenRes.ok) {
+      return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_error=token_exchange_failed`);
+    }
+
+    const tokenJson = await tokenRes.json();
+    
+    // Update Appwrite device doc with Spotify tokens
+    const device = await getUserPlanBySlug(slug);
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      {
+        spotifyAccessToken: tokenJson.access_token,
+        spotifyRefreshToken: tokenJson.refresh_token,
+        spotifyConnected: true
+      }
+    );
+
+    return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_connected=true`);
+  } catch (err) {
+    console.error("Spotify OAuth error:", err);
+    return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_error=callback_failed`);
   }
 });
 

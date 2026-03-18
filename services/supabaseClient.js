@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { logError, logInfo } from "../utils/logger.js";
 import {
   ensureFolder,
@@ -22,6 +23,31 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 // ---------------- CONFIG ----------------
 const BUCKET = process.env.SUPABASE_BUCKET || "user-files";
 const MEMORY_ROOT = "memory";
+
+// ---------------- ENCRYPTION HELPER ----------------
+function encryptBuffer(buffer, secretKey) {
+  const iv = crypto.randomBytes(16);
+  // Ensure key is 32 bytes for aes-256-cbc
+  const key = crypto.createHash('sha256').update(String(secretKey)).digest();
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+  const encrypted = Buffer.concat([iv, cipher.update(buffer), cipher.final()]);
+  return encrypted;
+}
+
+// ---------------- DECRYPTION HELPER ----------------
+function decryptBuffer(encryptedBuffer, secretKey) {
+  try {
+    const iv = encryptedBuffer.slice(0, 16);
+    const encryptedData = encryptedBuffer.slice(16);
+    const key = crypto.createHash('sha256').update(String(secretKey)).digest();
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+    return decrypted;
+  } catch (err) {
+    logError("Decryption failed:", err.message);
+    return encryptedBuffer; // Return original if decryption fails (might not be encrypted)
+  }
+}
 
 // ---------------- SAVE FILE (LOCAL → SUPABASE → DELETE LOCAL) ----------------
 export async function saveFileToSlug(
@@ -153,7 +179,16 @@ export async function saveFileToSlug(
           }
 
           // Start resumable upload to Drive
-          const metadata = { name: filename, parents: folderId ? [folderId] : undefined };
+          const metadata = { 
+            name: filename + ".enc", // Append .enc to indicate encryption
+            parents: folderId ? [folderId] : undefined,
+            description: "Encrypted by RK AI"
+          };
+          
+          // Encrypt buffer before upload
+          const encryptionKey = process.env.DRIVE_ENCRYPTION_SECRET || "rk-ai-default-vault-key";
+          const encryptedBuffer = encryptBuffer(buffer, encryptionKey);
+
           const initRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
             method: "POST",
             headers: {
@@ -173,9 +208,9 @@ export async function saveFileToSlug(
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/octet-stream",
-              "Content-Length": String(buffer.length)
+              "Content-Length": String(encryptedBuffer.length)
             },
-            body: buffer
+            body: encryptedBuffer
           });
 
           if (!uploadRes.ok) throw new Error(`Drive upload failed: ${uploadRes.status}`);
@@ -185,12 +220,13 @@ export async function saveFileToSlug(
           // Clean up local file
           if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
 
-          logInfo(`[Google Drive] ✅ File uploaded successfully: ${uploaded.id}`);
+          logInfo(`[Google Drive] ✅ Encrypted file uploaded successfully: ${uploaded.id}`);
 
           return {
             localPath: null,
             supaPath: `gdrive:${uploaded.id}`,
-            sizeMB: buffer.length / (1024 * 1024)
+            sizeMB: encryptedBuffer.length / (1024 * 1024),
+            encrypted: true
           };
         } catch (err) {
           logError("Google Drive upload failed, falling back to Supabase:", err.message || err);
@@ -198,33 +234,22 @@ export async function saveFileToSlug(
         }
       }
     } catch (err) {
-      logError("Could not fetch user storage prefs, continuing with Supabase:", err.message || err);
+      logError("[Google Drive Check] Failed to query user preferences:", err.message || err);
     }
 
-    // ✅ CORRECT SUPABASE PATH (NO slug- PREFIX)
-    const supaPath = `${safeSlug}/${filename}`;
-
-    const { error: uploadError } = await supabase
-      .storage
+    // ---------------- FALLBACK TO SUPABASE ----------------
+    logInfo(`[Supabase] Uploading ${filename} to Supabase...`);
+    const supaPath = `${slug}/${filename}`;
+    const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(supaPath, buffer, { upsert: true });
 
     if (uploadError) {
-      if (uploadError.message?.includes("already exists")) {
-        await supabase.storage.from(BUCKET).remove([supaPath]);
-
-        const retry = await supabase
-          .storage
-          .from(BUCKET)
-          .upload(supaPath, buffer, { upsert: true });
-
-        if (retry.error) throw retry.error;
-      } else {
-        throw uploadError;
-      }
+      logError("Supabase upload error:", uploadError.message);
+      throw uploadError;
     }
 
-    // ✅🔥 DELETE LOCAL FILE AFTER SUCCESSFUL UPLOAD 🔥✅
+    // Clean up local file
     if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
 
     return {
@@ -302,7 +327,8 @@ export async function downloadFileFromSlug(slug, filename) {
 
         // Search for file in Drive (in the RK AI Files folder if it exists)
         const folderId = user.googleFolderId;
-        let query = `name='${filename}' and trashed=false`;
+        // Search for both original filename and .enc version
+        let query = `(name='${filename}' or name='${filename}.enc') and trashed=false`;
         if (folderId) {
           query += ` and '${folderId}' in parents`;
         }
@@ -321,8 +347,10 @@ export async function downloadFileFromSlug(slug, filename) {
           logInfo(`[Google Drive Download] File not found: ${filename}, falling back to Supabase...`);
           // Fall through to Supabase
         } else {
-          const fileId = searchResult.files[0].id;
-          logInfo(`[Google Drive Download] Found file: ${fileId}`);
+          const file = searchResult.files[0];
+          const fileId = file.id;
+          const isEncrypted = file.name.endsWith(".enc");
+          logInfo(`[Google Drive Download] Found file: ${fileId}, encrypted: ${isEncrypted}`);
 
           // Download the file
           const downloadRes = await fetch(
@@ -330,14 +358,18 @@ export async function downloadFileFromSlug(slug, filename) {
             { headers: { Authorization: `Bearer ${token}` } }
           );
 
-          if (!downloadRes.ok) {
-            throw new Error(`Download failed: ${downloadRes.status}`);
+          if (!downloadRes.ok) throw new Error(`Download failed: ${downloadRes.status}`);
+
+          let data = Buffer.from(await downloadRes.arrayBuffer());
+          
+          if (isEncrypted) {
+            logInfo("[Google Drive Download] Decrypting file...");
+            const encryptionKey = process.env.DRIVE_ENCRYPTION_SECRET || "rk-ai-default-vault-key";
+            data = decryptBuffer(data, encryptionKey);
           }
 
-          const arrayBuffer = await downloadRes.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
-          logInfo(`[Google Drive Download] ✅ Downloaded successfully: ${buffer.length} bytes`);
-          return buffer;
+          logInfo(`[Google Drive Download] ✅ Downloaded successfully: ${data.length} bytes`);
+          return data;
         }
       } catch (err) {
         logError(`[Google Drive Download] Error: ${err.message || err}, falling back to Supabase...`);
@@ -357,8 +389,9 @@ export async function downloadFileFromSlug(slug, filename) {
     }
 
     const buffer = await data.arrayBuffer();
-    logInfo(`[Supabase Download] ✅ Downloaded successfully: ${buffer.length} bytes`);
-    return Buffer.from(buffer);
+    const finalBuffer = Buffer.from(buffer);
+    logInfo(`[Supabase Download] ✅ Downloaded successfully: ${finalBuffer.length} bytes`);
+    return finalBuffer;
 
   } catch (err) {
     logError("downloadFileFromSlug error:", err.message || err);
@@ -392,72 +425,34 @@ export async function cleanupSupabaseFiles(slug, tier) {
     const RETENTION_HOURS = {
       free: 24,
       student: 24,
-      creator: 24,
-      pro: 24 * 7, // 7 days
-      studio: 24 * 30 // 30 days
+      creator: 48,
+      pro: 72,
+      studio: 168
     };
 
-    const maxAgeHours = RETENTION_HOURS[tier] || 24;
-    const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
-    const now = Date.now();
+    const retention = RETENTION_HOURS[tier] || 24;
+    const now = new Date();
 
-    const { data, error } = await supabase
-      .storage
-      .from(BUCKET)
-      .list(safeSlug, { limit: 1000 });
+    const { data, error } = await supabase.storage.from(BUCKET).list(safeSlug);
+    if (error) throw error;
 
-    if (error || !data) return 0;
-
-    const toDelete = [];
-    let currentTotalSize = 0;
-
+    let totalSize = 0;
     for (const file of data) {
-      const fileSize = file.metadata?.size || 0;
-      currentTotalSize += fileSize;
+      const created = new Date(file.created_at);
+      const diffHours = (now - created) / (1000 * 60 * 60);
 
-      if (file.name === 'chat.txt' || file.name === 'limit.txt' || file.name === '.emptyFolderPlaceholder') continue;
-
-      const fileTime = new Date(file.created_at).getTime();
-      if (now - fileTime > maxAgeMs) {
-        toDelete.push(`${safeSlug}/${file.name}`);
-        currentTotalSize -= fileSize;
+      if (diffHours > retention) {
+        logInfo(`[Cleanup] Deleting expired file: ${file.name}`);
+        await supabase.storage.from(BUCKET).remove([`${safeSlug}/${file.name}`]);
+      } else {
+        totalSize += file.metadata.size;
       }
     }
 
-    if (toDelete.length > 0) {
-      await supabase.storage.from(BUCKET).remove(toDelete);
-      logInfo(`[Cleanup] Deleted ${toDelete.length} old files from Supabase for slug ${safeSlug} (Tier: ${tier})`);
-    }
+    return totalSize / (1024 * 1024); // Return total size in MB
 
-    return currentTotalSize / (1024 * 1024); // Return remaining size in MB
   } catch (err) {
     logError("cleanupSupabaseFiles error:", err.message || err);
-    return 0;
-  }
-}
-
-// ---------------- GET TOTAL STORAGE USED (SUPABASE BUCKET) ----------------
-export async function getSlugStorageUsed(slug) {
-  try {
-    const safeSlug = String(slug);
-    const { data, error } = await supabase
-      .storage
-      .from(BUCKET)
-      .list(safeSlug, { limit: 1000 });
-
-    if (error || !data) return 0;
-    
-    let totalBytes = 0;
-    for (const file of data) {
-      totalBytes += file.metadata?.size || 0;
-    }
-    
-    const sizeMB = totalBytes / (1024 * 1024);
-    logInfo(`[Storage] ${safeSlug} is using ${sizeMB.toFixed(2)} MB in Supabase.`);
-    return sizeMB;
-
-  } catch (err) {
-    logError("getSlugStorageUsed error:", err.message || err);
     return 0;
   }
 }
