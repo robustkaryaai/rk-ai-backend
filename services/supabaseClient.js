@@ -383,10 +383,16 @@ export async function downloadFileFromSlug(slug, filename) {
       .from(BUCKET)
       .download(`${slug}/${filename}`);
 
-    if (error || !data) {
-      logError(`[Supabase Download] Error: ${error?.message || "No data"}`);
+    if (error) {
+      if (error.status === 404 || error.message?.includes("Object not found")) {
+        logInfo(`[Supabase Download] File ${filename} not found in Supabase (New user?).`);
+        return null;
+      }
+      logError(`[Supabase Download] Error: ${JSON.stringify(error)}`);
       return null;
     }
+
+    if (!data) return null;
 
     const buffer = await data.arrayBuffer();
     const finalBuffer = Buffer.from(buffer);
