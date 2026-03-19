@@ -482,3 +482,120 @@ export async function cleanupSupabaseFiles(slug, tier) {
     return 0;
   }
 }
+
+// ---------------- MIGRATE TO GOOGLE DRIVE ----------------
+/**
+ * Copies all files from Supabase to Google Drive for a specific slug.
+ * Skips 'limit.txt' as requested.
+ */
+export async function migrateToGoogleDrive(slug) {
+  try {
+    const safeSlug = String(slug);
+    const user = await getUserPlanBySlug(safeSlug);
+
+    if (!user || !user.googleAccessToken || !user.googleFolderId) {
+      logError(`[Migration] User ${slug} not ready for migration (missing token or folderId).`);
+      return false;
+    }
+
+    logInfo(`[Migration] Starting migration for slug: ${slug}...`);
+
+    // 1. List all files in Supabase for this slug
+    const { data: files, error } = await supabase.storage.from(BUCKET).list(safeSlug, { limit: 1000 });
+    if (error) {
+      logError(`[Migration] Failed to list files in Supabase for ${slug}: ${error.message}`);
+      return false;
+    }
+
+    if (!files || files.length === 0) {
+      logInfo(`[Migration] No files found in Supabase for ${slug}. Migration complete.`);
+      return true;
+    }
+
+    let token = user.googleAccessToken;
+    const folderId = user.googleFolderId;
+    const encryptionKey = process.env.DRIVE_ENCRYPTION_SECRET || "rk-ai-default-vault-key";
+
+    let successCount = 0;
+    let skipCount = 0;
+    let failCount = 0;
+
+    for (const file of files) {
+      const filename = file.name;
+
+      // 🛑 SKIP limit.txt as per user requirement
+      if (filename.toLowerCase() === "limit.txt") {
+        logInfo(`[Migration] Skipping system file: ${filename}`);
+        skipCount++;
+        continue;
+      }
+
+      try {
+        logInfo(`[Migration] Processing: ${filename}...`);
+
+        // 2. Download from Supabase
+        const { data: blob, error: dlError } = await supabase.storage
+          .from(BUCKET)
+          .download(`${safeSlug}/${filename}`);
+
+        if (dlError || !blob) {
+          logError(`[Migration] Failed to download ${filename} from Supabase: ${dlError?.message}`);
+          failCount++;
+          continue;
+        }
+
+        const buffer = Buffer.from(await blob.arrayBuffer());
+
+        // 3. Encrypt buffer
+        const encryptedBuffer = encryptBuffer(buffer, encryptionKey);
+
+        // 4. Upload to Google Drive (Resumable)
+        const metadata = {
+          name: filename + ".enc",
+          parents: [folderId],
+          description: "Migrated from Supabase by RK AI"
+        };
+
+        const initRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json; charset=UTF-8"
+          },
+          body: JSON.stringify(metadata)
+        });
+
+        if (!initRes.ok) throw new Error(`Drive init failed: ${initRes.status}`);
+
+        const uploadUrl = initRes.headers.get("location");
+        if (!uploadUrl) throw new Error("No upload URL from Drive");
+
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(encryptedBuffer.length)
+          },
+          body: encryptedBuffer
+        });
+
+        if (!uploadRes.ok) throw new Error(`Drive upload failed: ${uploadRes.status}`);
+
+        logInfo(`[Migration] ✅ Successfully migrated ${filename} to Google Drive.`);
+        successCount++;
+
+      } catch (err) {
+        logError(`[Migration] Error migrating ${filename}: ${err.message || err}`);
+        failCount++;
+      }
+    }
+
+    logInfo(`[Migration] Migration for ${slug} finished. Success: ${successCount}, Skipped: ${skipCount}, Failed: ${failCount}`);
+    return true;
+
+  } catch (err) {
+    logError(`[Migration] Critical error during migration for ${slug}: ${err.message || err}`);
+    return false;
+  }
+}

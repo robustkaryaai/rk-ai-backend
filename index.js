@@ -9,7 +9,7 @@ import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
 import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
 import { callGemini, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
-import { cleanupSupabaseFiles } from "./services/supabaseClient.js";
+import { cleanupSupabaseFiles, migrateToGoogleDrive } from "./services/supabaseClient.js";
 import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
@@ -621,6 +621,12 @@ app.get("/auth/google/callback", async (req, res) => {
         email: userInfo.email
       }
     );
+
+    // 🚀 AUTOMATIC MIGRATION: Copy existing files from Supabase to Drive (except limit.txt)
+    // We run this asynchronously so the user doesn't wait for the migration to finish
+    migrateToGoogleDrive(slug).catch(err => {
+      console.error(`[Migration] Async migration failed for ${slug}:`, err);
+    });
 
     // 🚀 Robust Deep Link Redirect
     const isNative = decodedState.includes('|native');
