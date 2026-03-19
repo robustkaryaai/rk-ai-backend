@@ -858,12 +858,21 @@ app.get("/device/:slug/alarms", async (req, res) => {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
-    let alarms = device.alarms || [];
-    if (typeof alarms === 'string') {
-      try { alarms = JSON.parse(alarms); } catch (e) { alarms = []; }
-    }
+
+    const result = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      "alarms",
+      [Query.equal("device_id", device.$id), Query.limit(100)]
+    );
+
+    const alarms = result.documents.map(d => ({
+      ...d,
+      id: d.$id, 
+      days: typeof d.days === 'string' ? JSON.parse(d.days || "[]") : (d.days || [])
+    }));
     return res.json(alarms);
   } catch (err) {
+    if (err.code === 404) return res.json([]);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -874,12 +883,20 @@ app.get("/device/:slug/schedules", async (req, res) => {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
-    let schedules = device.schedules || [];
-    if (typeof schedules === 'string') {
-      try { schedules = JSON.parse(schedules); } catch (e) { schedules = []; }
-    }
+
+    const result = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      "schedules",
+      [Query.equal("device_id", device.$id), Query.limit(100)]
+    );
+
+    const schedules = result.documents.map(d => ({
+      ...d,
+      id: d.$id
+    }));
     return res.json(schedules);
   } catch (err) {
+    if (err.code === 404) return res.json([]);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -892,12 +909,28 @@ app.post("/device/:slug/sync_alarms", async (req, res) => {
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
 
-    await db.updateDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      device.$id,
-      { alarms: JSON.stringify(alarms || []) }
-    );
+    // Wipe old alarms
+    try {
+      const old = await db.listDocuments(process.env.APPWRITE_DB_ID, "alarms", [Query.equal("device_id", device.$id)]);
+      for (const doc of old.documents) {
+        await db.deleteDocument(process.env.APPWRITE_DB_ID, "alarms", doc.$id);
+      }
+    } catch(e) {}
+
+    // Insert new alarms
+    if (Array.isArray(alarms)) {
+      for (const alarm of alarms) {
+        await db.createDocument(process.env.APPWRITE_DB_ID, "alarms", ID.unique(), {
+          device_id: device.$id,
+          time: alarm.time || "",
+          date: alarm.date || "",
+          days: typeof alarm.days === 'string' ? alarm.days : JSON.stringify(alarm.days || []),
+          sound: alarm.sound || "default",
+          label: alarm.label || "Alarm",
+          enabled: alarm.enabled !== false
+        });
+      }
+    }
     return res.json({ ok: true });
   } catch (err) {
     console.error(`[Sync] Alarms error:`, err);
@@ -912,12 +945,25 @@ app.post("/device/:slug/sync_schedules", async (req, res) => {
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
 
-    await db.updateDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      device.$id,
-      { schedules: JSON.stringify(schedules || []) }
-    );
+    // Wipe old schedules
+    try {
+      const old = await db.listDocuments(process.env.APPWRITE_DB_ID, "schedules", [Query.equal("device_id", device.$id)]);
+      for (const doc of old.documents) {
+        await db.deleteDocument(process.env.APPWRITE_DB_ID, "schedules", doc.$id);
+      }
+    } catch(e) {}
+
+    // Insert new schedules
+    if (Array.isArray(schedules)) {
+      for (const sched of schedules) {
+        await db.createDocument(process.env.APPWRITE_DB_ID, "schedules", ID.unique(), {
+          device_id: device.$id,
+          time: sched.time || "",
+          date: sched.date || "",
+          task: sched.task || sched.label || "Schedule"
+        });
+      }
+    }
     return res.json({ ok: true });
   } catch (err) {
     console.error(`[Sync] Schedules error:`, err);
@@ -1241,39 +1287,51 @@ app.post("/device/:slug/command", async (req, res) => {
 
     const device = deviceDoc.documents[0];
 
-    // 🚀 INSTANT DB SYNC for Alarms & Schedules (so the app updates instantly)
+    // 🚀 INSTANT DB SYNC for Alarms & Schedules Collections (so the app updates instantly)
     try {
       if (command_type === "set_alarm") {
-        let currentAlarms = typeof device.alarms === 'string' ? JSON.parse(device.alarms || "[]") : (device.alarms || []);
-        currentAlarms.push({
-          id: `alarm-${Date.now()}`,
-          time: payload.time,
-          label: payload.label || 'Alarm',
-          sound: payload.sound || 'default',
-          days: payload.days || [],
+        await db.createDocument(process.env.APPWRITE_DB_ID, "alarms", ID.unique(), {
+          device_id: device.$id,
+          time: payload.time || "",
+          date: payload.date || "",
+          days: JSON.stringify(payload.days || []),
+          sound: payload.sound || "default",
+          label: payload.label || "Alarm",
           enabled: true
         });
-        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { alarms: JSON.stringify(currentAlarms) });
       } 
       else if (command_type === "delete_alarm") {
-        let currentAlarms = typeof device.alarms === 'string' ? JSON.parse(device.alarms || "[]") : (device.alarms || []);
-        currentAlarms = currentAlarms.filter(a => a.id !== payload.alarm_id);
-        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { alarms: JSON.stringify(currentAlarms) });
+        // Appwrite delete requires Document ID. But payload might only have alarm_id.
+        // We must query and delete.
+        try {
+          const docs = await db.listDocuments(process.env.APPWRITE_DB_ID, "alarms", [Query.equal("device_id", device.$id)]);
+          // The UI might pass the payload.alarm_id mapping to $id, or we just wipe all for now.
+          // Wait, if UI deletes, it sends payload.alarm_id.
+          for (let doc of docs.documents) {
+            // Delete if doc.$id matches, or if we have no reliable mapping, we could just let Pi sync wipe it over next poller tick.
+            if (doc.$id === payload.alarm_id) {
+              await db.deleteDocument(process.env.APPWRITE_DB_ID, "alarms", doc.$id);
+            }
+          }
+        } catch(e) {}
       }
       else if (command_type === "set_schedule") {
-        let currentSchedules = typeof device.schedules === 'string' ? JSON.parse(device.schedules || "[]") : (device.schedules || []);
-        currentSchedules.push({
-          id: payload.id || `sched-${Date.now()}`,
-          date: payload.date,
-          time: payload.time,
-          task: payload.task
+        await db.createDocument(process.env.APPWRITE_DB_ID, "schedules", ID.unique(), {
+          device_id: device.$id,
+          date: payload.date || "",
+          time: payload.time || "",
+          task: payload.task || "Schedule"
         });
-        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { schedules: JSON.stringify(currentSchedules) });
       }
       else if (command_type === "delete_schedule") {
-        let currentSchedules = typeof device.schedules === 'string' ? JSON.parse(device.schedules || "[]") : (device.schedules || []);
-        currentSchedules = currentSchedules.filter(s => s.id !== payload.schedule_id);
-        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { schedules: JSON.stringify(currentSchedules) });
+        try {
+          const docs = await db.listDocuments(process.env.APPWRITE_DB_ID, "schedules", [Query.equal("device_id", device.$id)]);
+          for (let doc of docs.documents) {
+            if (doc.$id === payload.schedule_id) {
+              await db.deleteDocument(process.env.APPWRITE_DB_ID, "schedules", doc.$id);
+            }
+          }
+        } catch(e) {}
       }
     } catch (syncErr) {
       console.error("[Command Uplink] Failed to auto-sync alarm/schedule to Appwrite:", syncErr);
