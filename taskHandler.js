@@ -83,12 +83,31 @@ export async function handleIntents(slug, intents, context = {}) {
       if (intent === "set_alarm") {
         const time = parameters.time;
         const label = parameters.label || "Alarm";
-        const reply = `⏰ Alarm set for ${time}${label !== "Alarm" ? " (" + label + ")" : ""}.`;
+        const sound = parameters.sound || "freesound_community-alarm-clock-short-6402.mp3";
+        
+        // 🚀 USE GEMINI TO GENERATE A WAKE-UP MESSAGE
+        let wakeUpMessage = `Radhe Radhe! It's ${time}. Time for ${label}.`;
+        try {
+          const geminiPrompt = `The user set an alarm for ${time} with the label "${label}". Generate a short, creative, and motivating wake-up message (max 20 words). Start with "Radhe Radhe!".`;
+          const aiResponse = await callGemini(geminiPrompt);
+          if (aiResponse) wakeUpMessage = aiResponse.trim();
+        } catch (err) {
+          console.error("[Gemini-Alarm] Failed to generate message:", err);
+        }
+
+        const reply = `⏰ Alarm set for ${time}${label !== "Alarm" ? " (" + label + ")" : ""}. I'll wake you up with a custom message!`;
         
         // Update device doc with the new alarm
         const device = await getUserPlanBySlug(slug);
         const alarms = device.alarms || [];
-        const newAlarm = { id: Date.now().toString(), time, label, active: true };
+        const newAlarm = { 
+          id: Date.now().toString(), 
+          time, 
+          label, 
+          sound, 
+          wakeUpMessage,
+          active: true 
+        };
         alarms.push(newAlarm);
         
         await db.updateDocument(
@@ -99,7 +118,7 @@ export async function handleIntents(slug, intents, context = {}) {
         );
         
         await appendChat(slug, userPrompt, reply);
-        results.push({ intent, parameters, execution: "microcontroller", reply });
+        results.push({ intent, parameters: { ...parameters, sound, wakeUpMessage }, execution: "microcontroller", reply });
         continue;
       }
 
