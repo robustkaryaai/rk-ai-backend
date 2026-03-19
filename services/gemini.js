@@ -33,7 +33,7 @@ export async function listGeminiModels(customApiKey = null) {
     logError("❌ Failed to list Gemini models:", err.message);
     // Fallback models
     return [
-      { name: "gemini-3.1-flash-lite", displayName: "Gemini 3.1 Flash Lite (Default)" },
+      { name: "gemini-3.1-flash-lite-preview", displayName: "Gemini 3.1 Flash Lite (Default)" },
       { name: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
       { name: "gemini-3-flash", displayName: "Gemini 3 Flash" }
     ];
@@ -57,7 +57,7 @@ ${userPrompt}
 
     // Use custom API key and model if provided, otherwise fallback to system default
     const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
-    const modelToUse = customModel || "gemini-3.1-flash-lite"; // 🚀 Default to 3.1-flash-lite for speed
+    const modelToUse = customModel || "gemini-3.1-flash-lite-preview"; // 🚀 Default to 3.1-flash-lite-preview for speed
 
     const response = await currentGenAI.models.generateContent({
       model: modelToUse,
