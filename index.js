@@ -877,6 +877,7 @@ app.get("/device/:slug/alarms", async (req, res) => {
     const alarms = result.documents.map(d => ({
       ...d,
       id: d.$id, 
+      label: d.for || d.label || "Alarm",
       days: typeof d.days === 'string' ? JSON.parse(d.days || "[]") : (d.days || [])
     }));
     return res.json(alarms);
@@ -910,7 +911,8 @@ app.get("/device/:slug/schedules", async (req, res) => {
 
     const schedules = result.documents.map(d => ({
       ...d,
-      id: d.$id
+      id: d.$id,
+      task: d.task || d.taskId || "Task"
     }));
     return res.json(schedules);
   } catch (err) {
