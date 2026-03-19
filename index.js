@@ -892,11 +892,14 @@ app.post("/device/:slug/sync_alarms", async (req, res) => {
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
     
+    let metadata = typeof device.metadata === 'string' ? JSON.parse(device.metadata || "{}") : (device.metadata || {});
+    metadata.alarms = alarms || [];
+
     await db.updateDocument(
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
       device.$id,
-      { alarms: JSON.stringify(alarms || []) }
+      { metadata: JSON.stringify(metadata) }
     );
     return res.json({ ok: true });
   } catch (err) {
@@ -912,11 +915,14 @@ app.post("/device/:slug/sync_schedules", async (req, res) => {
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
     
+    let metadata = typeof device.metadata === 'string' ? JSON.parse(device.metadata || "{}") : (device.metadata || {});
+    metadata.schedules = schedules || [];
+
     await db.updateDocument(
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
       device.$id,
-      { schedules: JSON.stringify(schedules || []) }
+      { metadata: JSON.stringify(metadata) }
     );
     return res.json({ ok: true });
   } catch (err) {
