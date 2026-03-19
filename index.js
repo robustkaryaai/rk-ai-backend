@@ -926,31 +926,45 @@ app.post("/device/:slug/command", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const { command_type, payload } = req.body;
+    
+    console.log(`[Command Uplink] Received ${command_type} for slug: ${slug}`);
+    console.log("[Command Uplink] Body:", JSON.stringify(req.body));
 
-    if (!/^\d{9}$/.test(slug)) {
-      return res.status(400).json({ error: "Invalid slug format" });
+    // Relaxed slug validation: must be numeric, length doesn't have to be 9
+    if (!/^\d+$/.test(slug)) {
+      console.error("[Command Uplink] Invalid slug format:", slug);
+      return res.status(400).json({ error: "Invalid slug format (must be numeric)" });
     }
 
     if (!command_type) {
-      return res.status(400).json({ error: "command_type required" });
+      console.error("[Command Uplink] Missing command_type");
+      return res.status(400).json({ error: "Missing command_type" });
     }
 
     // Validate device exists
-    const deviceDoc = await db.listDocuments(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      [Query.equal("slug", Number(slug))]
-    );
+    console.log(`[Command Uplink] Verifying device exists. DB: ${process.env.APPWRITE_DB_ID}, Collection: ${process.env.APPWRITE_DEVICES_COLLECTION || 'devices'}, Slug: ${slug}`);
+    
+    let deviceDoc;
+    try {
+      deviceDoc = await db.listDocuments(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION || "devices", // 🚀 Added fallback
+        [Query.equal("slug", Number(slug))]
+      );
+    } catch (listErr) {
+      console.error("[Command Uplink] Appwrite listDocuments failed:", listErr.message);
+      return res.status(500).json({ error: `Appwrite access failed: ${listErr.message}` });
+    }
 
-    if (deviceDoc.documents.length === 0) {
-      return res.status(404).json({ error: "Device not found" });
+    if (!deviceDoc || deviceDoc.documents.length === 0) {
+      console.error("[Command Uplink] Device not found in Appwrite registry:", slug);
+      return res.status(404).json({ error: `Device ${slug} not registered` });
     }
 
     // Create command in Appwrite commands collection
-    // 🚀 Robust attribute mapping: try both camelCase and snake_case if they exist in schema
     const docData = {
       slug: Number(slug),
-      commandType: command_type, // Try camelCase
+      commandType: command_type,
       payload: JSON.stringify(payload || {}),
       status: "pending",
       createdAt: new Date().toISOString(),
@@ -958,24 +972,39 @@ app.post("/device/:slug/command", async (req, res) => {
       result: null
     };
 
-    const command = await db.createDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_COMMANDS_COLLECTION || "commands",
-      ID.unique(),
-      docData
-    );
+    const collectionId = process.env.APPWRITE_COMMANDS_COLLECTION || "commands";
+    console.log(`[Command Uplink] Creating document in collection: ${collectionId}`);
+    
+    let command;
+    try {
+      command = await db.createDocument(
+        process.env.APPWRITE_DB_ID,
+        collectionId,
+        ID.unique(),
+        docData
+      );
+    } catch (createErr) {
+      console.error("[Command Uplink] Appwrite createDocument failed:", createErr.message);
+      if (createErr.response) console.error("[Command Uplink] Full Response:", JSON.stringify(createErr.response));
+      
+      // If the error is about "commandType", maybe try a different attribute name or log it clearly
+      return res.status(500).json({ 
+        error: `Failed to create command: ${createErr.message}`,
+        details: createErr.response 
+      });
+    }
 
-    logInfo(`Command queued for device ${slug}: ${command_type}`);
+    console.log("[Command Uplink] Success! Command ID:", command.$id);
 
     return res.json({
       ok: true,
       command_id: command.$id,
       queued_at: command.createdAt || command.$createdAt
     });
-
   } catch (err) {
-    logError("COMMAND QUEUE ERROR:", err);
-    return res.status(500).json({ error: "Server error" });
+    console.error("[Command Uplink] FATAL ERROR:", err.message);
+    if (err.response) console.error("[Command Uplink] Appwrite details:", err.response);
+    return res.status(500).json({ error: err.message });
   }
 });
 
