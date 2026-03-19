@@ -184,6 +184,7 @@ Now only output JSON following the schema and rules.`;
 // ---------------- DEVICE PRESENCE TRACKING ----------------
 const deviceLastSeen = new Map();
 const deviceBusyState = new Map(); // 🚀 Track explicit processing state (now stores strings like "thinking", "playing", "speaking")
+const deviceDownloadProgress = new Map(); // 🚀 TRACK MUSIC DOWNLOADS
 
 // Helper to normalize slug to 9-digit string
 app.get("/ai/models", async (req, res) => {
@@ -202,6 +203,7 @@ app.get("/device/:slug/status", async (req, res) => {
   const slug = normalizeSlug(rawSlug);
   const lastSeen = deviceLastSeen.get(slug);
   const busyState = deviceBusyState.get(slug) || "idle";
+  const downloadProgress = deviceDownloadProgress.get(slug) || null;
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
 
@@ -226,6 +228,7 @@ app.get("/device/:slug/status", async (req, res) => {
     diffSeconds: lastSeen ? Math.floor((now - lastSeen) / 1000) : null,
     busyState,
     isBusy: busyState !== "idle",
+    downloadProgress, // 🚀 Include download info
     storageMB: storageMB || 0,
     shoom: true
   };
@@ -852,6 +855,7 @@ app.get("/device/:slug/alarms", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "device_not_found" });
     const alarms = device.alarms || [];
     return res.json(alarms);
   } catch (err) {
@@ -864,8 +868,24 @@ app.get("/device/:slug/schedules", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "device_not_found" });
     const schedules = device.schedules || [];
     return res.json(schedules);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------------- DEVICE UPDATE STATUS (BUSY/DOWNLOAD) ----------------
+app.post("/device/:slug/update-status", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const { busyState, downloadProgress } = req.body;
+
+    if (busyState) deviceBusyState.set(slug, busyState);
+    if (downloadProgress !== undefined) deviceDownloadProgress.set(slug, downloadProgress);
+
+    return res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
