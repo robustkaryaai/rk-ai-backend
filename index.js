@@ -649,12 +649,12 @@ app.get("/auth/spotify/start/:slug", async (req, res) => {
     const slug = req.params.slug;
     const state = slug;
 
-    // 🚀 FORCE PRODUCTION URL IF ON RENDER
+    // 🚀 USE DYNAMIC REDIRECT URI
     const host = req.get('host') || "";
-    let redirectUri = `https://rk-ai-backend.onrender.com/auth/spotify/callback`;
-    if (host.includes('localhost')) {
-      redirectUri = `http://localhost:4000/auth/spotify/callback`;
-    }
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    const redirectUri = `${protocol}://${host}/auth/spotify/callback`;
+    
+    console.log(`[Spotify OAuth] Using Redirect URI: ${redirectUri}`);
 
     if (!process.env.SPOTIFY_CLIENT_ID) {
       console.error("SPOTIFY_CLIENT_ID is not defined in .env");
