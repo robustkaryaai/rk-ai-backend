@@ -884,6 +884,47 @@ app.get("/device/:slug/schedules", async (req, res) => {
   }
 });
 
+// ---------------- ALARMS & SCHEDULES SYNC FROM PI ----------------
+app.post("/device/:slug/sync_alarms", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const { alarms } = req.body;
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "device_not_found" });
+    
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      { alarms: JSON.stringify(alarms || []) }
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(`[Sync] Alarms error:`, err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/device/:slug/sync_schedules", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const { schedules } = req.body;
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "device_not_found" });
+    
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      { schedules: JSON.stringify(schedules || []) }
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(`[Sync] Schedules error:`, err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------------- DEVICE UPDATE STATUS (BUSY/DOWNLOAD) ----------------
 app.post("/device/:slug/update-status", async (req, res) => {
   try {
