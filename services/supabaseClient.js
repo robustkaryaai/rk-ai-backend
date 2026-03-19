@@ -55,7 +55,8 @@ export async function saveFileToSlug(
   filename,
   buffer,
   tier = "free",
-  storageLimitMB = 10240
+  storageLimitMB = 10240,
+  forceSupabase = false
 ) {
   try {
     const safeSlug = String(slug);
@@ -73,13 +74,14 @@ export async function saveFileToSlug(
 
     // If user prefers Google Drive and has a valid token + tier, upload there instead
     try {
-      const user = await getUserPlanBySlug(safeSlug);
-      const storageUsing = String(user.storageUsing || "").toLowerCase();
+      if (!forceSupabase) {
+        const user = await getUserPlanBySlug(safeSlug);
+        const storageUsing = String(user.storageUsing || "").toLowerCase();
 
-      logInfo(`[Google Drive Check] storageUsing=${storageUsing}, hasToken=${!!user.googleAccessToken}`);
+        logInfo(`[Google Drive Check] storageUsing=${storageUsing}, hasToken=${!!user.googleAccessToken}`);
 
-      if (storageUsing === "google" && user.googleAccessToken) {
-        logInfo("[Google Drive] Attempting upload to Google Drive...");
+        if (storageUsing === "google" && user.googleAccessToken) {
+          logInfo("[Google Drive] Attempting upload to Google Drive...");
         try {
           let token = user.googleAccessToken;
 
@@ -233,6 +235,7 @@ export async function saveFileToSlug(
           // fallthrough to supabase upload
         }
       }
+      } // end if (!forceSupabase)
     } catch (err) {
       logError("[Google Drive Check] Failed to query user preferences:", err.message || err);
     }
@@ -596,6 +599,162 @@ export async function migrateToGoogleDrive(slug) {
 
   } catch (err) {
     logError(`[Migration] Critical error during migration for ${slug}: ${err.message || err}`);
+    return false;
+  }
+}
+
+// ---------------- LIST FILES ----------------
+export async function listFilesFromSlug(slug) {
+  try {
+    const safeSlug = String(slug);
+    const user = await getUserPlanBySlug(safeSlug);
+    if (!user) return [];
+
+    const storageUsing = String(user.storageUsing || "").toLowerCase();
+    
+    // 1. TRY GOOGLE DRIVE FIRST
+    if (storageUsing === "google" && user.googleAccessToken) {
+      try {
+        let token = user.googleAccessToken;
+        const validateRes = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${token}`);
+        if (!validateRes.ok && user.googleRefreshToken) {
+          const refreshBody = new URLSearchParams();
+          refreshBody.append("client_id", process.env.GOOGLE_CLIENT_ID);
+          refreshBody.append("client_secret", process.env.GOOGLE_CLIENT_SECRET);
+          refreshBody.append("grant_type", "refresh_token");
+          refreshBody.append("refresh_token", user.googleRefreshToken);
+
+          const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: refreshBody.toString()
+          });
+
+          if (tokenRes.ok) {
+            const tokenJson = await tokenRes.json();
+            token = tokenJson.access_token || token;
+            await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, user.$id, { googleAccessToken: token });
+          }
+        }
+
+        const folderId = user.googleFolderId;
+        if (folderId) {
+          let query = `'${folderId}' in parents and trashed=false`;
+          const searchRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,size,mimeType,createdTime)&orderBy=createdTime desc&pageSize=100`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          if (searchRes.ok) {
+            const searchResult = await searchRes.json();
+            return (searchResult.files || []).map(file => {
+              // Strip .enc from name for frontend display
+              const isEnc = file.name.endsWith(".enc");
+              const baseName = isEnc ? file.name.slice(0, -4) : file.name;
+              
+              // Guess true mimeType if encrypted, since it uploads as octet-stream
+              let actualMime = file.mimeType;
+              if (isEnc) {
+                if (baseName.endsWith(".jpg") || baseName.endsWith(".jpeg")) actualMime = "image/jpeg";
+                else if (baseName.endsWith(".png")) actualMime = "image/png";
+                else if (baseName.endsWith(".mp4")) actualMime = "video/mp4";
+                else if (baseName.endsWith(".mp3")) actualMime = "audio/mpeg";
+              }
+
+              return {
+                id: file.id,
+                name: baseName,
+                size: parseInt(file.size || 0, 10),
+                mimeType: actualMime,
+                createdAt: file.createdTime,
+                source: 'google'
+              };
+            });
+          }
+        }
+      } catch (err) {
+        logError(`[Google Drive List] Error: ${err.message || err}, falling back to Supabase...`);
+      }
+    }
+
+    // 2. FALLBACK TO SUPABASE
+    const { data, error } = await supabase.storage.from(BUCKET).list(safeSlug, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
+    if (error || !data) return [];
+
+    return data.map(file => ({
+      id: file.id || file.name,
+      name: file.name,
+      size: file.metadata?.size || 0,
+      mimeType: file.metadata?.mimetype || 'application/octet-stream',
+      createdAt: file.created_at,
+      source: 'supabase'
+    }));
+
+  } catch (err) {
+    logError("listFilesFromSlug error:", err.message || err);
+    return [];
+  }
+}
+
+// ---------------- DELETE FILE ----------------
+export async function deleteFileFromSlug(slug, filename) {
+  try {
+    const safeSlug = String(slug);
+    const user = await getUserPlanBySlug(safeSlug);
+    if (!user) return false;
+
+    const storageUsing = String(user.storageUsing || "").toLowerCase();
+
+    // 1. TRY GOOGLE DRIVE FIRST
+    if (storageUsing === "google" && user.googleAccessToken) {
+      try {
+        let token = user.googleAccessToken;
+        const validateRes = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${token}`);
+        if (!validateRes.ok && user.googleRefreshToken) {
+          const refreshBody = new URLSearchParams();
+          refreshBody.append("client_id", process.env.GOOGLE_CLIENT_ID);
+          refreshBody.append("client_secret", process.env.GOOGLE_CLIENT_SECRET);
+          refreshBody.append("grant_type", "refresh_token");
+          refreshBody.append("refresh_token", user.googleRefreshToken);
+          const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: refreshBody.toString()
+          });
+          if (tokenRes.ok) {
+            const tokenJson = await tokenRes.json();
+            token = tokenJson.access_token || token;
+            await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, user.$id, { googleAccessToken: token });
+          }
+        }
+
+        const folderId = user.googleFolderId;
+        let query = `(name='${filename}' or name='${filename}.enc') and trashed=false`;
+        if (folderId) query += ` and '${folderId}' in parents`;
+
+         const searchRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)&pageSize=1`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (searchRes.ok) {
+          const searchResult = await searchRes.json();
+          if (searchResult.files && searchResult.files.length > 0) {
+            const fileId = searchResult.files[0].id;
+            const delRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (delRes.ok) return true;
+          }
+        }
+      } catch (err) {
+        logError(`[Google Drive Delete] Error: ${err.message || err}`);
+      }
+    }
+
+    // 2. FALLBACK TO SUPABASE
+    const { error } = await supabase.storage.from(BUCKET).remove([`${safeSlug}/${filename}`]);
+    return !error;
+
+  } catch (err) {
+    logError("deleteFileFromSlug error:", err.message || err);
     return false;
   }
 }

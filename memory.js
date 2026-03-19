@@ -157,7 +157,7 @@ export async function saveLimit(slug, obj) {
     }
 
     const buffer = Buffer.from(JSON.stringify(obj, null, 2), "utf8");
-    await saveFileToSlug(slug, "limit.txt", buffer);
+    await saveFileToSlug(slug, "limit.txt", buffer, "free", 10240, true);
     return true;
 
   } catch (err) {

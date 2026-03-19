@@ -9,7 +9,7 @@ import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
 import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
 import { callGemini, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
-import { cleanupSupabaseFiles, migrateToGoogleDrive } from "./services/supabaseClient.js";
+import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./services/supabaseClient.js";
 import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
@@ -922,6 +922,61 @@ app.post("/device/:slug/sync_schedules", async (req, res) => {
   } catch (err) {
     console.error(`[Sync] Schedules error:`, err);
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------------- FILES (List & Download) ----------------
+app.get("/device/:slug/files", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const files = await listFilesFromSlug(slug);
+    const filtered = files.filter(f => !['chat.txt', 'limit.txt', 'welcome.txt'].includes(f.name.toLowerCase()));
+    
+    // Add dynamic streaming URL for the frontend
+    const mapped = filtered.map(f => ({
+      ...f,
+      url: `/device/${slug}/file/${f.name}` // Next.js proxy will route this
+    }));
+
+    return res.json({ slug, folderExists: true, files: mapped });
+  } catch (err) {
+    return res.status(500).json({ slug: req.params.slug, folderExists: false, files: [] });
+  }
+});
+
+app.get("/device/:slug/file/:filename", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const filename = req.params.filename;
+    const buffer = await downloadFileFromSlug(slug, filename);
+
+    if (!buffer) return res.status(404).send("File not found");
+
+    let mimeType = 'application/octet-stream';
+    const lowerName = filename.toLowerCase();
+    if (lowerName.endsWith('.png')) mimeType = 'image/png';
+    else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
+    else if (lowerName.endsWith('.mp4')) mimeType = 'video/mp4';
+    else if (lowerName.endsWith('.mp3')) mimeType = 'audio/mpeg';
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(buffer);
+  } catch (err) {
+    return res.status(500).send(String(err));
+  }
+});
+
+app.delete("/device/:slug/file/:filename", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const filename = req.params.filename;
+    const success = await deleteFileFromSlug(slug, filename);
+
+    if (success) return res.json({ ok: true });
+    else return res.status(500).json({ error: "Failed to delete file" });
+  } catch (err) {
+    return res.status(500).json({ error: String(err) });
   }
 });
 
