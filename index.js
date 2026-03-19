@@ -775,6 +775,61 @@ app.get("/auth/spotify/callback", async (req, res) => {
   }
 });
 
+// ---------------- DEVICE SETTINGS ----------------
+app.post("/device/:slug/settings", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const settings = req.body;
+    
+    console.log(`[Settings] Updating settings for ${slug}:`, settings);
+
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "device_not_found" });
+
+    const updateData = { ...settings };
+
+    // 🚀 If assistantName is updated, use Gemini to generate wake word variations
+    if (settings.assistantName && settings.assistantName !== device.assistantName) {
+      console.log(`[Settings] Assistant name changed to ${settings.assistantName}. Generating wake words...`);
+      try {
+        const prompt = `The user wants to name their AI assistant "${settings.assistantName}". 
+        Generate a list of 8-10 variations of this name that a speech-to-text engine might transcribe it as, 
+        including common misspellings or similar-sounding words. 
+        Return ONLY a JSON array of strings. Example for "Jarvis": ["Jarvis", "Jarvis", "Java", "Travis", "Jarvis AI"].`;
+        
+        const aiResponse = await callGemini(prompt);
+        // Clean the response to ensure it's valid JSON
+        const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
+        const variations = JSON.parse(cleanedResponse);
+        
+        // Ensure the original name is included
+        if (!variations.includes(settings.assistantName)) {
+          variations.unshift(settings.assistantName);
+        }
+        
+        updateData.wakeWords = JSON.stringify(variations);
+        console.log(`[Settings] Generated wake words:`, variations);
+      } catch (err) {
+        console.error(`[Settings] Failed to generate wake words:`, err);
+        // Fallback to just the name
+        updateData.wakeWords = JSON.stringify([settings.assistantName]);
+      }
+    }
+
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      updateData
+    );
+
+    return res.json({ success: true, wakeWords: updateData.wakeWords ? JSON.parse(updateData.wakeWords) : null });
+  } catch (err) {
+    console.error(`[Settings] Error updating settings:`, err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.get("/device/check/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
