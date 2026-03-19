@@ -862,7 +862,7 @@ app.get("/device/:slug/alarms", async (req, res) => {
     const result = await db.listDocuments(
       process.env.APPWRITE_DB_ID,
       "alarms",
-      [Query.equal("device_id", device.$id), Query.limit(100)]
+      [Query.equal("id", device.$id), Query.limit(100)]
     );
 
     const alarms = result.documents.map(d => ({
@@ -887,7 +887,7 @@ app.get("/device/:slug/schedules", async (req, res) => {
     const result = await db.listDocuments(
       process.env.APPWRITE_DB_ID,
       "schedules",
-      [Query.equal("device_id", device.$id), Query.limit(100)]
+      [Query.equal("id", device.$id), Query.limit(100)]
     );
 
     const schedules = result.documents.map(d => ({
@@ -911,7 +911,7 @@ app.post("/device/:slug/sync_alarms", async (req, res) => {
 
     // Wipe old alarms
     try {
-      const old = await db.listDocuments(process.env.APPWRITE_DB_ID, "alarms", [Query.equal("device_id", device.$id)]);
+      const old = await db.listDocuments(process.env.APPWRITE_DB_ID, "alarms", [Query.equal("id", device.$id)]);
       for (const doc of old.documents) {
         await db.deleteDocument(process.env.APPWRITE_DB_ID, "alarms", doc.$id);
       }
@@ -921,13 +921,12 @@ app.post("/device/:slug/sync_alarms", async (req, res) => {
     if (Array.isArray(alarms)) {
       for (const alarm of alarms) {
         await db.createDocument(process.env.APPWRITE_DB_ID, "alarms", ID.unique(), {
-          device_id: device.$id,
-          time: alarm.time || "",
-          date: alarm.date || "",
+          id: device.$id,
+          time: String(alarm.time || ""),
+          date: String(alarm.date || ""),
           days: typeof alarm.days === 'string' ? alarm.days : JSON.stringify(alarm.days || []),
-          sound: alarm.sound || "default",
-          label: alarm.label || "Alarm",
-          enabled: alarm.enabled !== false
+          sound: String(alarm.sound || "default"),
+          for: String(alarm.label || alarm.for || "Alarm")
         });
       }
     }
@@ -947,7 +946,7 @@ app.post("/device/:slug/sync_schedules", async (req, res) => {
 
     // Wipe old schedules
     try {
-      const old = await db.listDocuments(process.env.APPWRITE_DB_ID, "schedules", [Query.equal("device_id", device.$id)]);
+      const old = await db.listDocuments(process.env.APPWRITE_DB_ID, "schedules", [Query.equal("id", device.$id)]);
       for (const doc of old.documents) {
         await db.deleteDocument(process.env.APPWRITE_DB_ID, "schedules", doc.$id);
       }
@@ -957,10 +956,12 @@ app.post("/device/:slug/sync_schedules", async (req, res) => {
     if (Array.isArray(schedules)) {
       for (const sched of schedules) {
         await db.createDocument(process.env.APPWRITE_DB_ID, "schedules", ID.unique(), {
-          device_id: device.$id,
-          time: sched.time || "",
-          date: sched.date || "",
-          task: sched.task || sched.label || "Schedule"
+          id: device.$id,
+          time: String(sched.time || ""),
+          date: String(sched.date || ""),
+          days: "[]",
+          sound: "none",
+          for: String(sched.task || sched.label || "Schedule")
         });
       }
     }
@@ -1291,24 +1292,20 @@ app.post("/device/:slug/command", async (req, res) => {
     try {
       if (command_type === "set_alarm") {
         await db.createDocument(process.env.APPWRITE_DB_ID, "alarms", ID.unique(), {
-          device_id: device.$id,
-          time: payload.time || "",
-          date: payload.date || "",
+          id: device.$id,
+          time: String(payload.time || ""),
+          date: String(payload.date || ""),
           days: JSON.stringify(payload.days || []),
-          sound: payload.sound || "default",
-          label: payload.label || "Alarm",
-          enabled: true
+          sound: String(payload.sound || "default"),
+          for: String(payload.label || "Alarm")
         });
       } 
       else if (command_type === "delete_alarm") {
         // Appwrite delete requires Document ID. But payload might only have alarm_id.
         // We must query and delete.
         try {
-          const docs = await db.listDocuments(process.env.APPWRITE_DB_ID, "alarms", [Query.equal("device_id", device.$id)]);
-          // The UI might pass the payload.alarm_id mapping to $id, or we just wipe all for now.
-          // Wait, if UI deletes, it sends payload.alarm_id.
+          const docs = await db.listDocuments(process.env.APPWRITE_DB_ID, "alarms", [Query.equal("id", device.$id)]);
           for (let doc of docs.documents) {
-            // Delete if doc.$id matches, or if we have no reliable mapping, we could just let Pi sync wipe it over next poller tick.
             if (doc.$id === payload.alarm_id) {
               await db.deleteDocument(process.env.APPWRITE_DB_ID, "alarms", doc.$id);
             }
@@ -1317,15 +1314,17 @@ app.post("/device/:slug/command", async (req, res) => {
       }
       else if (command_type === "set_schedule") {
         await db.createDocument(process.env.APPWRITE_DB_ID, "schedules", ID.unique(), {
-          device_id: device.$id,
-          date: payload.date || "",
-          time: payload.time || "",
-          task: payload.task || "Schedule"
+          id: device.$id,
+          time: String(payload.time || ""),
+          date: String(payload.date || ""),
+          days: "[]",
+          sound: "none",
+          for: String(payload.task || "Schedule")
         });
       }
       else if (command_type === "delete_schedule") {
         try {
-          const docs = await db.listDocuments(process.env.APPWRITE_DB_ID, "schedules", [Query.equal("device_id", device.$id)]);
+          const docs = await db.listDocuments(process.env.APPWRITE_DB_ID, "schedules", [Query.equal("id", device.$id)]);
           for (let doc of docs.documents) {
             if (doc.$id === payload.schedule_id) {
               await db.deleteDocument(process.env.APPWRITE_DB_ID, "schedules", doc.$id);
