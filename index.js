@@ -797,10 +797,20 @@ app.get("/device/:slug/alarms", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
-    // Assuming alarms are stored in the device document or a separate collection.
-    // For now, return what's in the device doc if it exists.
     const alarms = device.alarms || [];
     return res.json(alarms);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------------- SCHEDULES ----------------
+app.get("/device/:slug/schedules", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    const schedules = device.schedules || [];
+    return res.json(schedules);
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

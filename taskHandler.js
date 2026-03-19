@@ -18,6 +18,8 @@ const PASS_THROUGH = [
   "alarm",
   "set_alarm",
   "delete_alarm",
+  "set_schedule",
+  "delete_schedule",
   "period_bell",
   "emergency_alarm",
   "fire_alarm",
@@ -115,6 +117,47 @@ export async function handleIntents(slug, intents, context = {}) {
         );
         
         const reply = "🗑️ Alarm deleted.";
+        await appendChat(slug, userPrompt, reply);
+        results.push({ intent, parameters, execution: "microcontroller", reply });
+        continue;
+      }
+
+      /* ---------------- SCHEDULES ---------------- */
+      if (intent === "set_schedule") {
+        const { date, time, task } = parameters;
+        const reply = `📅 Task scheduled for ${date} at ${time}: "${task}"`;
+        
+        const device = await getUserPlanBySlug(slug);
+        const schedules = device.schedules || [];
+        const newSchedule = { id: Date.now().toString(), date, time, task, active: true };
+        schedules.push(newSchedule);
+        
+        await db.updateDocument(
+          process.env.APPWRITE_DB_ID,
+          process.env.APPWRITE_DEVICES_COLLECTION,
+          device.$id,
+          { schedules }
+        );
+        
+        await appendChat(slug, userPrompt, reply);
+        results.push({ intent, parameters, execution: "microcontroller", reply });
+        continue;
+      }
+
+      if (intent === "delete_schedule") {
+        const scheduleId = parameters.schedule_id;
+        const device = await getUserPlanBySlug(slug);
+        const schedules = device.schedules || [];
+        const updatedSchedules = schedules.filter(s => s.id !== scheduleId);
+        
+        await db.updateDocument(
+          process.env.APPWRITE_DB_ID,
+          process.env.APPWRITE_DEVICES_COLLECTION,
+          device.$id,
+          { schedules: updatedSchedules }
+        );
+        
+        const reply = "🗑️ Schedule deleted.";
         await appendChat(slug, userPrompt, reply);
         results.push({ intent, parameters, execution: "microcontroller", reply });
         continue;
