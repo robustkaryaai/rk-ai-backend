@@ -26,11 +26,11 @@ const PASS_THROUGH = [
 
 /* ---------------- TIER STORAGE ---------------- */
 const TIER_STORAGE = {
-  free: 1024,
-  student: 5120,
-  creator: 10240,
-  pro: 51200,
-  studio: 122880
+  free: 50,
+  student: 500,
+  creator: 1000,
+  pro: 5000,
+  studio: 12000
 };
 
 /* ---------------- HUMAN TASK REPLY ---------------- */

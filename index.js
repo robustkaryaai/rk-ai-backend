@@ -497,7 +497,18 @@ app.get("/auth/google/start/:slug", async (req, res) => {
     // 🚀 Fixed: Use raw params to avoid double-encoding issues with slug|native
     const slug = req.params.slug;
     const state = slug; // Keep it as is
+
+    // 🚀 CHECK SUBSCRIPTION TIER: Only paid users can link Google Drive
+    const cleanSlug = normalizeSlug(slug.split('|')[0]);
+    const device = await getUserPlanBySlug(cleanSlug);
     
+    if (!device || device.subscription !== "true") {
+      console.log(`[Google OAuth] Refusing flow for ${slug} - Subscription not active.`);
+      const isNative = state.includes('|native');
+      const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+      return res.redirect(`${baseRedirectUrl}?google_error=subscription_required`);
+    }
+
     // 🚀 FORCE PRODUCTION URL IF ON RENDER
     const host = req.get('host') || "";
     let redirectUri = `https://rk-ai-backend.onrender.com/auth/google/callback`;
