@@ -656,6 +656,11 @@ app.get("/auth/spotify/start/:slug", async (req, res) => {
       redirectUri = `http://localhost:4000/auth/spotify/callback`;
     }
 
+    if (!process.env.SPOTIFY_CLIENT_ID) {
+      console.error("SPOTIFY_CLIENT_ID is not defined in .env");
+      return res.status(500).send("Spotify Client ID is missing on the server.");
+    }
+
     const params = new URLSearchParams({
       client_id: process.env.SPOTIFY_CLIENT_ID,
       response_type: "code",
@@ -750,6 +755,20 @@ app.get("/device/check/:slug", async (req, res) => {
   } catch (err) {
     logError("DEVICE CHECK ERROR:", err);
     return res.status(500).json({ error: "server_error" });
+  }
+});
+
+// ---------------- ALARMS ----------------
+app.get("/device/:slug/alarms", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    // Assuming alarms are stored in the device document or a separate collection.
+    // For now, return what's in the device doc if it exists.
+    const alarms = device.alarms || [];
+    return res.json(alarms);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
   }
 });
 app.post("/device/ensure/:slug", async (req, res) => {

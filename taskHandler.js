@@ -16,6 +16,8 @@ import { checkAndConsume } from "./limitManager.js";
 const PASS_THROUGH = [
   "reminder",
   "alarm",
+  "set_alarm",
+  "delete_alarm",
   "period_bell",
   "emergency_alarm",
   "fire_alarm",
@@ -74,6 +76,49 @@ export async function handleIntents(slug, intents, context = {}) {
     try {
       const userPrompt = parameters.prompt || intent;
       console.log(`🔍 Handling intent: ${intent} | Prompt: ${userPrompt}`);
+
+      /* ---------------- ALARMS ---------------- */
+      if (intent === "set_alarm") {
+        const time = parameters.time;
+        const label = parameters.label || "Alarm";
+        const reply = `⏰ Alarm set for ${time}${label !== "Alarm" ? " (" + label + ")" : ""}.`;
+        
+        // Update device doc with the new alarm
+        const device = await getUserPlanBySlug(slug);
+        const alarms = device.alarms || [];
+        const newAlarm = { id: Date.now().toString(), time, label, active: true };
+        alarms.push(newAlarm);
+        
+        await db.updateDocument(
+          process.env.APPWRITE_DB_ID,
+          process.env.APPWRITE_DEVICES_COLLECTION,
+          device.$id,
+          { alarms }
+        );
+        
+        await appendChat(slug, userPrompt, reply);
+        results.push({ intent, parameters, execution: "microcontroller", reply });
+        continue;
+      }
+
+      if (intent === "delete_alarm") {
+        const alarmId = parameters.alarm_id;
+        const device = await getUserPlanBySlug(slug);
+        const alarms = device.alarms || [];
+        const updatedAlarms = alarms.filter(a => a.id !== alarmId);
+        
+        await db.updateDocument(
+          process.env.APPWRITE_DB_ID,
+          process.env.APPWRITE_DEVICES_COLLECTION,
+          device.$id,
+          { alarms: updatedAlarms }
+        );
+        
+        const reply = "🗑️ Alarm deleted.";
+        await appendChat(slug, userPrompt, reply);
+        results.push({ intent, parameters, execution: "microcontroller", reply });
+        continue;
+      }
 
       /* -------- MCU PASS THROUGH -------- */
       if (PASS_THROUGH.includes(intent)) {
