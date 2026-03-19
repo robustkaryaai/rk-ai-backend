@@ -891,15 +891,12 @@ app.post("/device/:slug/sync_alarms", async (req, res) => {
     const { alarms } = req.body;
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
-    
-    let metadata = typeof device.metadata === 'string' ? JSON.parse(device.metadata || "{}") : (device.metadata || {});
-    metadata.alarms = alarms || [];
 
     await db.updateDocument(
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
       device.$id,
-      { metadata: JSON.stringify(metadata) }
+      { alarms: JSON.stringify(alarms || []) }
     );
     return res.json({ ok: true });
   } catch (err) {
@@ -914,15 +911,12 @@ app.post("/device/:slug/sync_schedules", async (req, res) => {
     const { schedules } = req.body;
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
-    
-    let metadata = typeof device.metadata === 'string' ? JSON.parse(device.metadata || "{}") : (device.metadata || {});
-    metadata.schedules = schedules || [];
 
     await db.updateDocument(
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
       device.$id,
-      { metadata: JSON.stringify(metadata) }
+      { schedules: JSON.stringify(schedules || []) }
     );
     return res.json({ ok: true });
   } catch (err) {
@@ -1249,10 +1243,8 @@ app.post("/device/:slug/command", async (req, res) => {
 
     // 🚀 INSTANT DB SYNC for Alarms & Schedules (so the app updates instantly)
     try {
-      let metadata = typeof device.metadata === 'string' ? JSON.parse(device.metadata || "{}") : (device.metadata || {});
-      
       if (command_type === "set_alarm") {
-        let currentAlarms = metadata.alarms || [];
+        let currentAlarms = typeof device.alarms === 'string' ? JSON.parse(device.alarms || "[]") : (device.alarms || []);
         currentAlarms.push({
           id: `alarm-${Date.now()}`,
           time: payload.time,
@@ -1261,29 +1253,27 @@ app.post("/device/:slug/command", async (req, res) => {
           days: payload.days || [],
           enabled: true
         });
-        metadata.alarms = currentAlarms;
-        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { metadata: JSON.stringify(metadata) });
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { alarms: JSON.stringify(currentAlarms) });
       } 
       else if (command_type === "delete_alarm") {
-        let currentAlarms = metadata.alarms || [];
-        metadata.alarms = currentAlarms.filter(a => a.id !== payload.alarm_id);
-        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { metadata: JSON.stringify(metadata) });
+        let currentAlarms = typeof device.alarms === 'string' ? JSON.parse(device.alarms || "[]") : (device.alarms || []);
+        currentAlarms = currentAlarms.filter(a => a.id !== payload.alarm_id);
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { alarms: JSON.stringify(currentAlarms) });
       }
       else if (command_type === "set_schedule") {
-        let currentSchedules = metadata.schedules || [];
+        let currentSchedules = typeof device.schedules === 'string' ? JSON.parse(device.schedules || "[]") : (device.schedules || []);
         currentSchedules.push({
           id: payload.id || `sched-${Date.now()}`,
           date: payload.date,
           time: payload.time,
           task: payload.task
         });
-        metadata.schedules = currentSchedules;
-        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { metadata: JSON.stringify(metadata) });
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { schedules: JSON.stringify(currentSchedules) });
       }
       else if (command_type === "delete_schedule") {
-        let currentSchedules = metadata.schedules || [];
-        metadata.schedules = currentSchedules.filter(s => s.id !== payload.schedule_id);
-        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { metadata: JSON.stringify(metadata) });
+        let currentSchedules = typeof device.schedules === 'string' ? JSON.parse(device.schedules || "[]") : (device.schedules || []);
+        currentSchedules = currentSchedules.filter(s => s.id !== payload.schedule_id);
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { schedules: JSON.stringify(currentSchedules) });
       }
     } catch (syncErr) {
       console.error("[Command Uplink] Failed to auto-sync alarm/schedule to Appwrite:", syncErr);
