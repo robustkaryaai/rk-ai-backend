@@ -612,13 +612,17 @@ app.get("/auth/google/callback", async (req, res) => {
       }
     );
 
-    console.log("✅ Appwrite updated successfully!");
-
     // Redirect to settings
-    return res.redirect(`${process.env.FRONTEND_URL}/settings?google_connected=true`);
+    const isNative = String(state).endsWith('|native');
+    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+    
+    console.log(`✅ Appwrite updated successfully! Redirecting to: ${baseRedirectUrl}`);
+    return res.redirect(`${baseRedirectUrl}?google_connected=true`);
   } catch (err) {
     console.error("OAuth callback error:", err);
-    return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=callback_failed`);
+    const isNative = String(req.query.state || "").endsWith('|native');
+    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+    return res.redirect(`${baseRedirectUrl}?google_error=callback_failed`);
   }
 });
 
@@ -693,10 +697,15 @@ app.get("/auth/spotify/callback", async (req, res) => {
       }
     );
 
-    return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_connected=true`);
+    const isNative = String(state).endsWith('|native');
+    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+
+    return res.redirect(`${baseRedirectUrl}?spotify_connected=true`);
   } catch (err) {
     console.error("Spotify OAuth error:", err);
-    return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_error=callback_failed`);
+    const isNative = String(req.query.state || "").endsWith('|native');
+    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+    return res.redirect(`${baseRedirectUrl}?spotify_error=callback_failed`);
   }
 });
 
