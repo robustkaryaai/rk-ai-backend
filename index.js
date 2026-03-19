@@ -7,7 +7,7 @@ import { db } from "./services/appwriteClient.js";
 import { Query, ID } from "node-appwrite";
 import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
 import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
-import { callGemini } from "./services/gemini.js";
+import { callGemini, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
 import { cleanupSupabaseFiles } from "./services/supabaseClient.js";
 import { HfInference } from "@huggingface/inference";
@@ -186,6 +186,11 @@ const deviceLastSeen = new Map();
 const deviceBusyState = new Map(); // 🚀 Track explicit processing state (now stores strings like "thinking", "playing", "speaking")
 
 // Helper to normalize slug to 9-digit string
+app.get("/ai/models", async (req, res) => {
+  const models = await listGeminiModels();
+  return res.json({ models });
+});
+
 const normalizeSlug = (slug) => {
   if (!slug) return "";
   const s = String(slug);
@@ -831,7 +836,7 @@ app.post("/device/:slug/mute", async (req, res) => {
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
       device.$id,
-      { is_muted: muted }
+      { isMuted: muted }
     );
 
     logInfo(`Device ${slug} mute state set to: ${muted}`);
@@ -876,7 +881,7 @@ app.post("/device/:slug/memory", async (req, res) => {
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
       device.$id,
-      { memory_enabled: enabled }
+      { memoryEnabled: enabled }
     );
 
     logInfo(`Device ${slug} memory set to: ${enabled}`);
@@ -928,13 +933,10 @@ app.post("/device/:slug/command", async (req, res) => {
       {
         slug: Number(slug),
         commandType: command_type, // 🚀 Fixed: Use commandType for Appwrite schema
-        command_type: command_type, // Keep for backward compatibility
         payload: JSON.stringify(payload || {}),
         status: "pending",
         createdAt: new Date().toISOString(), // 🚀 Fixed: Use createdAt for Appwrite schema
-        created_at: new Date().toISOString(), // Keep for backward compatibility
         executedAt: null,
-        executed_at: null,
         result: null
       }
     );
@@ -944,7 +946,7 @@ app.post("/device/:slug/command", async (req, res) => {
     return res.json({
       ok: true,
       command_id: command.$id,
-      queued_at: command.created_at
+      queued_at: command.createdAt
     });
 
   } catch (err) {
@@ -1006,7 +1008,6 @@ app.post("/device/:slug/commands/:command_id/complete", async (req, res) => {
       {
         status: success ? "completed" : "failed",
         executedAt: new Date().toISOString(), // 🚀 Fixed: Use executedAt for Appwrite schema
-        executed_at: new Date().toISOString(), // Keep for backward compatibility
         result: result || "No result"
       }
     );

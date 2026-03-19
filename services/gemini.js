@@ -22,6 +22,24 @@ function switchApiKey() {
 }
 
 // ✅ Ultra-Safe Gemini Caller
+export async function listGeminiModels(customApiKey = null) {
+  try {
+    const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
+    const models = await currentGenAI.listModels();
+    // Filter for generative models only
+    return models.filter(m => m.supportedGenerationMethods.includes('generateContent'))
+                 .map(m => ({ name: m.name.replace('models/', ''), displayName: m.displayName }));
+  } catch (err) {
+    logError("❌ Failed to list Gemini models:", err.message);
+    // Fallback models
+    return [
+      { name: "gemini-1.5-flash", displayName: "Gemini 1.5 Flash (Default)" },
+      { name: "gemini-1.5-pro", displayName: "Gemini 1.5 Pro" },
+      { name: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash (Fastest)" }
+    ];
+  }
+}
+
 export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null) {
   try {
     const historyText = Array.isArray(chatHistory)
