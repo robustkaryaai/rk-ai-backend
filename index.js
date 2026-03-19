@@ -483,9 +483,16 @@ app.get("/auth/google/start/:slug", async (req, res) => {
   try {
     const slug = String(req.params.slug);
     const state = encodeURIComponent(slug);
+    
+    // 🚀 Robust Redirect URI: Use environment variable or derive from current request host
+    const derivedRedirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
+    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || derivedRedirectUri;
+
+    console.log(`[Google OAuth] Starting flow for ${slug}. Redirect URI: ${redirectUri}`);
+
     const params = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
-      redirect_uri: process.env.GOOGLE_OAUTH_REDIRECT_URI,
+      redirect_uri: redirectUri,
       response_type: "code",
       // include email scope so we can verify account and store user email
       scope: "https://www.googleapis.com/auth/drive.file email",
@@ -496,6 +503,7 @@ app.get("/auth/google/start/:slug", async (req, res) => {
 
     return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
   } catch (err) {
+    console.error("Google OAuth start error:", err);
     return res.status(500).send(String(err));
   }
 });
@@ -510,12 +518,16 @@ app.get("/auth/google/callback", async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=missing_params`);
     }
 
+    // 🚀 Robust Redirect URI: Use environment variable or derive from current request host
+    const derivedRedirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
+    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || derivedRedirectUri;
+
     // Exchange code for tokens
     const body = new URLSearchParams();
     body.append("code", String(code));
     body.append("client_id", process.env.GOOGLE_CLIENT_ID);
     body.append("client_secret", process.env.GOOGLE_CLIENT_SECRET);
-    body.append("redirect_uri", process.env.GOOGLE_OAUTH_REDIRECT_URI);
+    body.append("redirect_uri", redirectUri);
     body.append("grant_type", "authorization_code");
 
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -615,10 +627,15 @@ app.get("/auth/spotify/start/:slug", async (req, res) => {
   try {
     const slug = String(req.params.slug);
     const state = encodeURIComponent(slug);
+
+    // 🚀 Robust Redirect URI: Use environment variable or derive from current request host
+    const derivedRedirectUri = `${req.protocol}://${req.get('host')}/auth/spotify/callback`;
+    const redirectUri = process.env.SPOTIFY_REDIRECT_URI || derivedRedirectUri;
+
     const params = new URLSearchParams({
       client_id: process.env.SPOTIFY_CLIENT_ID,
       response_type: "code",
-      redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+      redirect_uri: redirectUri,
       scope: "user-read-private user-read-email user-modify-playback-state user-read-playback-state streaming",
       state
     });
@@ -637,10 +654,14 @@ app.get("/auth/spotify/callback", async (req, res) => {
       return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_error=missing_params`);
     }
 
+    // 🚀 Robust Redirect URI: Use environment variable or derive from current request host
+    const derivedRedirectUri = `${req.protocol}://${req.get('host')}/auth/spotify/callback`;
+    const redirectUri = process.env.SPOTIFY_REDIRECT_URI || derivedRedirectUri;
+
     const body = new URLSearchParams();
     body.append("code", String(code));
     body.append("grant_type", "authorization_code");
-    body.append("redirect_uri", process.env.SPOTIFY_REDIRECT_URI);
+    body.append("redirect_uri", redirectUri);
 
     const authHeader = Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString("base64");
 
