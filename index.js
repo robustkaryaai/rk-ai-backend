@@ -197,24 +197,37 @@ const normalizeSlug = (slug) => {
   return s.padStart(9, '0');
 };
 
-app.get("/device/:slug/status", (req, res) => {
+app.get("/device/:slug/status", async (req, res) => {
   const rawSlug = req.params.slug;
   const slug = normalizeSlug(rawSlug);
   const lastSeen = deviceLastSeen.get(slug);
-  const busyState = deviceBusyState.get(slug) || "idle"; // 🚀 Get descriptive busy state
+  const busyState = deviceBusyState.get(slug) || "idle";
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
+
+  // Fetch storage info
+  let storageMB = 0;
+  try {
+    const device = await getUserPlanBySlug(slug);
+    if (device) {
+      const tierNum = device.subscription === "true" ? Number(device["subscription-tier"] || 0) : 0;
+      const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio" };
+      const tierName = tierMap[tierNum] || "free";
+      storageMB = await cleanupSupabaseFiles(slug, tierName);
+    }
+  } catch (err) {
+    console.error("[Status] Storage check failed:", err);
+  }
 
   const responsePayload = {
     slug,
     status: isOnline ? "online" : "offline",
     lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null,
     diffSeconds: lastSeen ? Math.floor((now - lastSeen) / 1000) : null,
-    busyState, // 🚀 Send descriptive busy signal
-    isBusy: busyState !== "idle", // Backward compatibility
-    shoom: true,
-    debug_raw_now: now,
-    debug_raw_lastSeen: lastSeen || 0
+    busyState,
+    isBusy: busyState !== "idle",
+    storageMB: storageMB || 0,
+    shoom: true
   };
 
   console.log(`[Status-Check] RAW_OUT: ${JSON.stringify(responsePayload)}`);
