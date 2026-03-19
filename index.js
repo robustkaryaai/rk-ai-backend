@@ -752,7 +752,7 @@ app.get("/auth/spotify/callback", async (req, res) => {
         {
           spotifyAccessToken: tokenJson.access_token,
           spotifyRefreshToken: tokenJson.refresh_token,
-          spotifyConnected: true
+          spotifyConnected: "true"
         }
       );
       console.log(`[Spotify OAuth] ✅ Appwrite updated successfully for ${slug}.`);
