@@ -856,14 +856,23 @@ app.get("/device/check/:slug", async (req, res) => {
 app.get("/device/:slug/alarms", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    console.log(`[Alarms Fetch] Fetching alarms for device slug: ${slug}`);
+    
     const device = await getUserPlanBySlug(slug);
-    if (!device) return res.status(404).json({ error: "device_not_found" });
+    if (!device) {
+      console.warn(`[Alarms Fetch] Device not found for slug: ${slug}`);
+      return res.status(404).json({ error: "device_not_found" });
+    }
+
+    console.log(`[Alarms Fetch] Device ID: ${device.$id}. Querying Appwrite collection 'alarms' where 'id' == ${device.$id}...`);
 
     const result = await db.listDocuments(
       process.env.APPWRITE_DB_ID,
       "alarms",
       [Query.equal("id", device.$id), Query.limit(100)]
     );
+
+    console.log(`[Alarms Fetch] Success! Found ${result.documents.length} alarms.`);
 
     const alarms = result.documents.map(d => ({
       ...d,
@@ -872,8 +881,17 @@ app.get("/device/:slug/alarms", async (req, res) => {
     }));
     return res.json(alarms);
   } catch (err) {
-    if (err.code === 404) return res.json([]);
-    res.status(500).json({ error: String(err) });
+    console.error(`[Alarms Fetch Error]`, err);
+    if (err.code === 404) {
+       console.error(`[Alarms Fetch Error] Collection 'alarms' not found! Check your Appwrite Collection ID settings.`);
+       return res.json([]);
+    }
+    // Return the specific error message to help the user debug "Application Error"
+    res.status(500).json({ 
+      error: "server_error", 
+      message: err.message, 
+      code: err.code 
+    });
   }
 });
 
