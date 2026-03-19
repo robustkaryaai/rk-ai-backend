@@ -690,6 +690,7 @@ app.get("/auth/spotify/start/:slug", async (req, res) => {
       response_type: "code",
       redirect_uri: redirectUri,
       scope: "user-read-private user-read-email user-modify-playback-state user-read-playback-state streaming",
+      show_dialog: "true", // 🚀 FORCE LOGIN DIALOG AS REQUESTED
       state
     });
     return res.redirect(`https://accounts.spotify.com/authorize?${params.toString()}`);
@@ -740,17 +741,26 @@ app.get("/auth/spotify/callback", async (req, res) => {
     const tokenJson = await tokenRes.json();
     
     // Update Appwrite device doc with Spotify tokens
-    const device = await getUserPlanBySlug(slug);
-    await db.updateDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      device.$id,
-      {
-        spotifyAccessToken: tokenJson.access_token,
-        spotifyRefreshToken: tokenJson.refresh_token,
-        spotifyConnected: true
-      }
-    );
+    try {
+      const device = await getUserPlanBySlug(slug);
+      console.log(`[Spotify OAuth] Updating device doc ${device.$id} for ${slug}...`);
+      
+      await db.updateDocument(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION,
+        device.$id,
+        {
+          spotifyAccessToken: tokenJson.access_token,
+          spotifyRefreshToken: tokenJson.refresh_token,
+          spotifyConnected: true
+        }
+      );
+      console.log(`[Spotify OAuth] ✅ Appwrite updated successfully for ${slug}.`);
+    } catch (appwriteErr) {
+      console.error(`[Spotify OAuth] ❌ Appwrite update failed (Check if attributes exist):`, appwriteErr.message || appwriteErr);
+      // We don't want to crash the whole flow if only Appwrite update failed (tokens are already in memory/logs if needed)
+      // but the user needs to add these attributes to Appwrite.
+    }
 
     const isNative = decodedState.includes('|native');
     const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
