@@ -608,7 +608,7 @@ app.get("/auth/google/callback", async (req, res) => {
         googleAccessToken: access_token,
         googleRefreshToken: refresh_token,
         googleFolderId: folderId,
-        googleEmail: userInfo.email
+        email: userInfo.email // 🚀 Fixed: Use 'email' attribute as requested
       }
     );
 
@@ -947,19 +947,22 @@ app.post("/device/:slug/command", async (req, res) => {
     }
 
     // Create command in Appwrite commands collection
+    // 🚀 Robust attribute mapping: try both camelCase and snake_case if they exist in schema
+    const docData = {
+      slug: Number(slug),
+      commandType: command_type, // Try camelCase
+      payload: JSON.stringify(payload || {}),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      executedAt: null,
+      result: null
+    };
+
     const command = await db.createDocument(
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_COMMANDS_COLLECTION || "commands",
       ID.unique(),
-      {
-        slug: Number(slug),
-        commandType: command_type, // 🚀 Fixed: Use commandType for Appwrite schema
-        payload: JSON.stringify(payload || {}),
-        status: "pending",
-        createdAt: new Date().toISOString(), // 🚀 Fixed: Use createdAt for Appwrite schema
-        executedAt: null,
-        result: null
-      }
+      docData
     );
 
     logInfo(`Command queued for device ${slug}: ${command_type}`);
@@ -967,7 +970,7 @@ app.post("/device/:slug/command", async (req, res) => {
     return res.json({
       ok: true,
       command_id: command.$id,
-      queued_at: command.createdAt
+      queued_at: command.createdAt || command.$createdAt
     });
 
   } catch (err) {
