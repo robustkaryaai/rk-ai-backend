@@ -1239,6 +1239,46 @@ app.post("/device/:slug/command", async (req, res) => {
       return res.status(404).json({ error: `Device ${slug} not registered` });
     }
 
+    const device = deviceDoc.documents[0];
+
+    // 🚀 INSTANT DB SYNC for Alarms & Schedules (so the app updates instantly)
+    try {
+      if (command_type === "set_alarm") {
+        let currentAlarms = typeof device.alarms === 'string' ? JSON.parse(device.alarms || "[]") : (device.alarms || []);
+        currentAlarms.push({
+          id: `alarm-${Date.now()}`,
+          time: payload.time,
+          label: payload.label || 'Alarm',
+          sound: payload.sound || 'default',
+          days: payload.days || [],
+          enabled: true
+        });
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { alarms: JSON.stringify(currentAlarms) });
+      } 
+      else if (command_type === "delete_alarm") {
+        let currentAlarms = typeof device.alarms === 'string' ? JSON.parse(device.alarms || "[]") : (device.alarms || []);
+        currentAlarms = currentAlarms.filter(a => a.id !== payload.alarm_id);
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { alarms: JSON.stringify(currentAlarms) });
+      }
+      else if (command_type === "set_schedule") {
+        let currentSchedules = typeof device.schedules === 'string' ? JSON.parse(device.schedules || "[]") : (device.schedules || []);
+        currentSchedules.push({
+          id: payload.id || `sched-${Date.now()}`,
+          date: payload.date,
+          time: payload.time,
+          task: payload.task
+        });
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { schedules: JSON.stringify(currentSchedules) });
+      }
+      else if (command_type === "delete_schedule") {
+        let currentSchedules = typeof device.schedules === 'string' ? JSON.parse(device.schedules || "[]") : (device.schedules || []);
+        currentSchedules = currentSchedules.filter(s => s.id !== payload.schedule_id);
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, { schedules: JSON.stringify(currentSchedules) });
+      }
+    } catch (syncErr) {
+      console.error("[Command Uplink] Failed to auto-sync alarm/schedule to Appwrite:", syncErr);
+    }
+
     // Create command in Appwrite commands collection
     const docData = {
       slug: Number(slug),
