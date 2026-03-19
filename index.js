@@ -481,20 +481,24 @@ app.get("/noop", (req, res) => {
 // ---------------- GOOGLE OAUTH START ----------------
 app.get("/auth/google/start/:slug", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
-    const state = encodeURIComponent(slug);
+    // 🚀 Fixed: Use raw params to avoid double-encoding issues with slug|native
+    const slug = req.params.slug;
+    const state = slug; // Keep it as is
     
-    // 🚀 Robust Redirect URI: Use environment variable or derive from current request host
-    const derivedRedirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || derivedRedirectUri;
+    // 🚀 FORCE PRODUCTION URL IF ON RENDER
+    const host = req.get('host') || "";
+    let redirectUri = `https://rk-ai-backend.onrender.com/auth/google/callback`;
+    
+    if (host.includes('localhost')) {
+      redirectUri = `http://localhost:4000/auth/google/callback`;
+    }
 
-    console.log(`[Google OAuth] Starting flow for ${slug}. Redirect URI: ${redirectUri}`);
+    console.log(`[Google OAuth] Starting flow for ${slug}. Host: ${host}, Redirect URI: ${redirectUri}`);
 
     const params = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
       redirect_uri: redirectUri,
       response_type: "code",
-      // include email scope so we can verify account and store user email
       scope: "https://www.googleapis.com/auth/drive.file email",
       access_type: "offline",
       prompt: "consent",
@@ -512,15 +516,21 @@ app.get("/auth/google/start/:slug", async (req, res) => {
 app.get("/auth/google/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
-    const slug = String(state || "");
+    // Decode state carefully
+    const decodedState = decodeURIComponent(state || "");
+    const slug = decodedState.split('|')[0];
+    
     if (!code || !slug) {
-      console.error("Missing code or state");
+      console.error("Missing code or state:", { code: !!code, slug });
       return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=missing_params`);
     }
 
-    // 🚀 Robust Redirect URI: Use environment variable or derive from current request host
-    const derivedRedirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI || derivedRedirectUri;
+    // 🚀 FORCE PRODUCTION URL IF ON RENDER
+    const host = req.get('host') || "";
+    let redirectUri = `https://rk-ai-backend.onrender.com/auth/google/callback`;
+    if (host.includes('localhost')) {
+      redirectUri = `http://localhost:4000/auth/google/callback`;
+    }
 
     // Exchange code for tokens
     const body = new URLSearchParams();
@@ -597,30 +607,31 @@ app.get("/auth/google/callback", async (req, res) => {
     }
 
     // Update Appwrite with all required fields
-    const user = await getUserPlanBySlug(slug);
-    console.log("📝 Updating Appwrite for device:", user.$id);
+    const device = await getUserPlanBySlug(slug);
+    console.log("📝 Updating Appwrite for device:", device.$id);
     await db.updateDocument(
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
-      user.$id,
+      device.$id,
       {
         storageUsing: 'google',
         googleAccessToken: access_token,
         googleRefreshToken: refresh_token,
         googleFolderId: folderId,
-        email: userInfo.email // 🚀 Fixed: Use 'email' attribute as requested
+        email: userInfo.email
       }
     );
 
-    // Redirect to settings
-    const isNative = String(state).endsWith('|native');
+    // 🚀 Robust Deep Link Redirect
+    const isNative = decodedState.includes('|native');
     const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
     
-    console.log(`✅ Appwrite updated successfully! Redirecting to: ${baseRedirectUrl}`);
+    console.log(`✅ Appwrite updated! Native: ${isNative}, Redirecting to: ${baseRedirectUrl}`);
     return res.redirect(`${baseRedirectUrl}?google_connected=true`);
   } catch (err) {
     console.error("OAuth callback error:", err);
-    const isNative = String(req.query.state || "").endsWith('|native');
+    const decodedStateErr = decodeURIComponent(req.query.state || "");
+    const isNative = decodedStateErr.includes('|native');
     const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
     return res.redirect(`${baseRedirectUrl}?google_error=callback_failed`);
   }
@@ -629,12 +640,15 @@ app.get("/auth/google/callback", async (req, res) => {
 // ---------------- SPOTIFY OAUTH START ----------------
 app.get("/auth/spotify/start/:slug", async (req, res) => {
   try {
-    const slug = String(req.params.slug);
-    const state = encodeURIComponent(slug);
+    const slug = req.params.slug;
+    const state = slug;
 
-    // 🚀 Robust Redirect URI: Use environment variable or derive from current request host
-    const derivedRedirectUri = `${req.protocol}://${req.get('host')}/auth/spotify/callback`;
-    const redirectUri = process.env.SPOTIFY_REDIRECT_URI || derivedRedirectUri;
+    // 🚀 FORCE PRODUCTION URL IF ON RENDER
+    const host = req.get('host') || "";
+    let redirectUri = `https://rk-ai-backend.onrender.com/auth/spotify/callback`;
+    if (host.includes('localhost')) {
+      redirectUri = `http://localhost:4000/auth/spotify/callback`;
+    }
 
     const params = new URLSearchParams({
       client_id: process.env.SPOTIFY_CLIENT_ID,
@@ -653,14 +667,20 @@ app.get("/auth/spotify/start/:slug", async (req, res) => {
 app.get("/auth/spotify/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
-    const slug = String(state || "");
+    const decodedState = decodeURIComponent(state || "");
+    const slug = decodedState.split('|')[0];
+
     if (!code || !slug) {
+      console.error("Missing code or state:", { code: !!code, slug });
       return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_error=missing_params`);
     }
 
-    // 🚀 Robust Redirect URI: Use environment variable or derive from current request host
-    const derivedRedirectUri = `${req.protocol}://${req.get('host')}/auth/spotify/callback`;
-    const redirectUri = process.env.SPOTIFY_REDIRECT_URI || derivedRedirectUri;
+    // 🚀 FORCE PRODUCTION URL IF ON RENDER
+    const host = req.get('host') || "";
+    let redirectUri = `https://rk-ai-backend.onrender.com/auth/spotify/callback`;
+    if (host.includes('localhost')) {
+      redirectUri = `http://localhost:4000/auth/spotify/callback`;
+    }
 
     const body = new URLSearchParams();
     body.append("code", String(code));
@@ -697,13 +717,14 @@ app.get("/auth/spotify/callback", async (req, res) => {
       }
     );
 
-    const isNative = String(state).endsWith('|native');
+    const isNative = decodedState.includes('|native');
     const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
 
     return res.redirect(`${baseRedirectUrl}?spotify_connected=true`);
   } catch (err) {
     console.error("Spotify OAuth error:", err);
-    const isNative = String(req.query.state || "").endsWith('|native');
+    const decodedStateErr = decodeURIComponent(req.query.state || "");
+    const isNative = decodedStateErr.includes('|native');
     const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
     return res.redirect(`${baseRedirectUrl}?spotify_error=callback_failed`);
   }
