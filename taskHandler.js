@@ -84,6 +84,7 @@ export async function handleIntents(slug, intents, context = {}) {
         const time = parameters.time;
         const label = parameters.label || "Alarm";
         const sound = parameters.sound || "freesound_community-alarm-clock-short-6402.mp3";
+        const days = parameters.days || []; // 🚀 RECURRING DAYS
         
         // 🚀 USE GEMINI TO GENERATE A WAKE-UP MESSAGE
         let wakeUpMessage = `Radhe Radhe! It's ${time}. Time for ${label}.`;
@@ -99,12 +100,19 @@ export async function handleIntents(slug, intents, context = {}) {
         
         // Update device doc with the new alarm
         const device = await getUserPlanBySlug(slug);
-        const alarms = device.alarms || [];
+        let alarms = [];
+        try {
+          alarms = typeof device.alarms === 'string' ? JSON.parse(device.alarms) : (device.alarms || []);
+        } catch (e) {
+          alarms = [];
+        }
+        
         const newAlarm = { 
           id: Date.now().toString(), 
           time, 
           label, 
           sound, 
+          days, // 🚀 Save recurring days
           wakeUpMessage,
           active: true 
         };
@@ -114,25 +122,31 @@ export async function handleIntents(slug, intents, context = {}) {
           process.env.APPWRITE_DB_ID,
           process.env.APPWRITE_DEVICES_COLLECTION,
           device.$id,
-          { alarms }
+          { alarms: JSON.stringify(alarms) }
         );
         
         await appendChat(slug, userPrompt, reply);
-        results.push({ intent, parameters: { ...parameters, sound, wakeUpMessage }, execution: "microcontroller", reply });
+        results.push({ intent, parameters: { ...parameters, sound, wakeUpMessage, days }, execution: "microcontroller", reply });
         continue;
       }
 
       if (intent === "delete_alarm") {
         const alarmId = parameters.alarm_id;
         const device = await getUserPlanBySlug(slug);
-        const alarms = device.alarms || [];
+        let alarms = [];
+        try {
+          alarms = typeof device.alarms === 'string' ? JSON.parse(device.alarms) : (device.alarms || []);
+        } catch (e) {
+          alarms = [];
+        }
+        
         const updatedAlarms = alarms.filter(a => a.id !== alarmId);
         
         await db.updateDocument(
           process.env.APPWRITE_DB_ID,
           process.env.APPWRITE_DEVICES_COLLECTION,
           device.$id,
-          { alarms: updatedAlarms }
+          { alarms: JSON.stringify(updatedAlarms) }
         );
         
         const reply = "🗑️ Alarm deleted.";
@@ -147,7 +161,13 @@ export async function handleIntents(slug, intents, context = {}) {
         const reply = `📅 Task scheduled for ${date} at ${time}: "${task}"`;
         
         const device = await getUserPlanBySlug(slug);
-        const schedules = device.schedules || [];
+        let schedules = [];
+        try {
+          schedules = typeof device.schedules === 'string' ? JSON.parse(device.schedules) : (device.schedules || []);
+        } catch (e) {
+          schedules = [];
+        }
+        
         const newSchedule = { id: Date.now().toString(), date, time, task, active: true };
         schedules.push(newSchedule);
         
@@ -155,7 +175,7 @@ export async function handleIntents(slug, intents, context = {}) {
           process.env.APPWRITE_DB_ID,
           process.env.APPWRITE_DEVICES_COLLECTION,
           device.$id,
-          { schedules }
+          { schedules: JSON.stringify(schedules) }
         );
         
         await appendChat(slug, userPrompt, reply);
@@ -166,14 +186,20 @@ export async function handleIntents(slug, intents, context = {}) {
       if (intent === "delete_schedule") {
         const scheduleId = parameters.schedule_id;
         const device = await getUserPlanBySlug(slug);
-        const schedules = device.schedules || [];
+        let schedules = [];
+        try {
+          schedules = typeof device.schedules === 'string' ? JSON.parse(device.schedules) : (device.schedules || []);
+        } catch (e) {
+          schedules = [];
+        }
+        
         const updatedSchedules = schedules.filter(s => s.id !== scheduleId);
         
         await db.updateDocument(
           process.env.APPWRITE_DB_ID,
           process.env.APPWRITE_DEVICES_COLLECTION,
           device.$id,
-          { schedules: updatedSchedules }
+          { schedules: JSON.stringify(updatedSchedules) }
         );
         
         const reply = "🗑️ Schedule deleted.";

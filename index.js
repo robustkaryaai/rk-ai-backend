@@ -856,7 +856,10 @@ app.get("/device/:slug/alarms", async (req, res) => {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
-    const alarms = device.alarms || [];
+    let alarms = device.alarms || [];
+    if (typeof alarms === 'string') {
+      try { alarms = JSON.parse(alarms); } catch (e) { alarms = []; }
+    }
     return res.json(alarms);
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -869,7 +872,10 @@ app.get("/device/:slug/schedules", async (req, res) => {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
-    const schedules = device.schedules || [];
+    let schedules = device.schedules || [];
+    if (typeof schedules === 'string') {
+      try { schedules = JSON.parse(schedules); } catch (e) { schedules = []; }
+    }
     return res.json(schedules);
   } catch (err) {
     res.status(500).json({ error: String(err) });
