@@ -928,10 +928,12 @@ app.post("/device/:slug/command", async (req, res) => {
       {
         slug: Number(slug),
         commandType: command_type, // 🚀 Fixed: Use commandType for Appwrite schema
-        command_type: command_type, // 🚀 Keep for backward compatibility
+        command_type: command_type, // Keep for backward compatibility
         payload: JSON.stringify(payload || {}),
         status: "pending",
-        created_at: new Date().toISOString(),
+        createdAt: new Date().toISOString(), // 🚀 Fixed: Use createdAt for Appwrite schema
+        created_at: new Date().toISOString(), // Keep for backward compatibility
+        executedAt: null,
         executed_at: null,
         result: null
       }
@@ -1003,7 +1005,8 @@ app.post("/device/:slug/commands/:command_id/complete", async (req, res) => {
       command_id,
       {
         status: success ? "completed" : "failed",
-        executed_at: new Date().toISOString(),
+        executedAt: new Date().toISOString(), // 🚀 Fixed: Use executedAt for Appwrite schema
+        executed_at: new Date().toISOString(), // Keep for backward compatibility
         result: result || "No result"
       }
     );
