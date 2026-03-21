@@ -1567,10 +1567,10 @@ app.get("/web/profile/:userId", async (req, res) => {
   const { userId } = req.params;
   try {
     const [waitlist, orders, preorders, subscriptions] = await Promise.all([
-      db.listDocuments(process.env.APPWRITE_DB_ID, "waitlist", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]),
-      db.listDocuments(process.env.APPWRITE_DB_ID, "orders", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]),
-      db.listDocuments(process.env.APPWRITE_DB_ID, "preorders", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]),
-      db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)])
+      db.listDocuments(process.env.APPWRITE_DB_ID, "waitlist", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
+      db.listDocuments(process.env.APPWRITE_DB_ID, "orders", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
+      db.listDocuments(process.env.APPWRITE_DB_ID, "preorders", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
+      db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)]).catch(() => ({ documents: [] }))
     ]);
 
     return res.json({
@@ -1653,12 +1653,26 @@ app.post("/web/preorder", async (req, res) => {
       source: data.source || "web"
     };
 
-    await db.createDocument(
-      process.env.APPWRITE_DB_ID,
-      "preorders",
-      ID.unique(),
-      preorderData
-    );
+    try {
+      await db.createDocument(
+        process.env.APPWRITE_DB_ID,
+        "preorders",
+        ID.unique(),
+        preorderData
+      );
+    } catch (createErr) {
+      if (createErr.message && createErr.message.includes("could not be found")) {
+        // Fallback: Use orders collection if preorders doesn't exist
+        await db.createDocument(
+          process.env.APPWRITE_DB_ID,
+          "orders",
+          ID.unique(),
+          preorderData
+        );
+      } else {
+        throw createErr;
+      }
+    }
 
     return res.json({ ok: true, message: "Pre-order submitted! 🚀" });
   } catch (err) {
