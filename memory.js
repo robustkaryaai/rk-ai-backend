@@ -128,6 +128,27 @@ export async function updateLastAI(slug, aiReply, index = null) {
   }
 }
 
+// ✅ DELETE SPECIFIC CHAT ENTRY
+export async function deleteChatEntry(slug, index) {
+  try {
+    if (!slug || typeof index !== "number") return null;
+    const prev = await loadChat(slug);
+    const list = Array.isArray(prev) ? prev : [];
+
+    if (index < 0 || index >= list.length) return list;
+
+    // Remove the item at the given index
+    list.splice(index, 1);
+
+    const buffer = Buffer.from(JSON.stringify(list, null, 2), "utf8");
+    await saveFileToSlug(slug, "chat.txt", buffer);
+    return list;
+  } catch (err) {
+    logError("deleteChatEntry error:", err);
+    return null;
+  }
+}
+
 // ------------------- LIMIT -------------------
 export async function loadLimit(slug) {
   try {

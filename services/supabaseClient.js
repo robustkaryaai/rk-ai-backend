@@ -180,11 +180,35 @@ export async function saveFileToSlug(
             logInfo(`[Google Drive] Space check: ${(availableBytes / (1024 * 1024 * 1024)).toFixed(2)} GB available`);
           }
 
-          // Start resumable upload to Drive
-          const metadata = { 
-            name: filename + ".enc", // Append .enc to indicate encryption
-            parents: folderId ? [folderId] : undefined,
-            description: "Encrypted by RK AI"
+          // 🚀 CHECK IF FILE EXISTS AND DELETE BEFORE UPLOADING (To prevent duplicates)
+          let query = `(name='${filename}' or name='${filename}.enc') and trashed=false`;
+          if (folderId) query += ` and '${folderId}' in parents`;
+
+          const searchRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)&pageSize=1`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+
+          if (searchRes.ok) {
+            const searchResult = await searchRes.json();
+            if (searchResult.files && searchResult.files.length > 0) {
+              const fileId = searchResult.files[0].id;
+              logInfo(`[Google Drive] Found existing file ${fileId}, deleting before overwrite...`);
+              try {
+                await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+                  method: "DELETE",
+                  headers: { Authorization: `Bearer ${token}` }
+                });
+              } catch (delErr) {
+                logError(`[Google Drive] Delete duplicate failed: ${delErr.message}`);
+              }
+            }
+          }
+
+          const metadata = {
+            name: filename + ".enc",
+            parents: folderId ? [folderId] : [],
+            description: "Encrypted asset from RK AI Home"
           };
           
           // Encrypt buffer before upload
