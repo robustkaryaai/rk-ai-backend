@@ -12,7 +12,7 @@ import { handleIntents } from "./taskHandler.js";
 import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./services/supabaseClient.js";
 import { HfInference } from "@huggingface/inference";
 // Your existing line — just add Databases, Account, Users if not already there
-import { Client, Account, Databases, Users, ID, Query } from "node-appwrite";
+import { Client, Account, Databases, Users } from "node-appwrite";
 
 dotenv.config();
 
