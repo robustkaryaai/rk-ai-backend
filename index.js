@@ -1671,6 +1671,7 @@ app.post("/web/preorder", async (req, res) => {
     const preorderData = {
       userId: data.userId,
       email: data.email,
+      phone: data.phone || "",
       productId: data.productId || "rkai_home",
       productName: data.productName || "RK AI Home",
       price: data.price || "₹4,999",
