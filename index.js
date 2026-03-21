@@ -474,34 +474,18 @@ app.get("/limits/:slug", async (req, res) => {
     const todayLimits = limits[t] || { image: 0, video: 0, ppt: 0 };
     const tierLimits = getLimitsForTier(tier);
 
-    return res.json({
-      used: todayLimits,
-      allowed: tierLimits,
-      tier
-    });
-  } catch (err) {
-    logError("LIMITS ERROR:", err);
-    return res.status(500).json({ error: "server_error" });
-  }
-});
-
-// ---------------- LIMITS CHECK ----------------
-app.get("/limits/:slug", async (req, res) => {
-  try {
-    const slug = normalizeSlug(req.params.slug);
-    const device = await getUserPlanBySlug(slug);
-    if (!device) return res.status(404).json({ error: "invalid_slug" });
-
-    const tier = Number(device["subscription-tier"] || 0);
-    const limits = await ensureLimitFile(slug);
-    const t = new Date().toISOString().split("T")[0];
-    const todayLimits = limits[t] || { image: 0, video: 0, ppt: 0 };
-    const tierLimits = getLimitsForTier(tier);
+    // 🚀 NEW: Matrix Subscription Data
+    const isPro = device.subscription === "true";
+    const trialUsed = device.trialUsed === "true" || device.trialUsed === true;
+    const trialEnd = device.trialEnd || null;
 
     return res.json({
       used: todayLimits,
       allowed: tierLimits,
-      tier
+      tier,
+      isPro,
+      trialUsed,
+      trialEnd
     });
   } catch (err) {
     logError("LIMITS ERROR:", err);
