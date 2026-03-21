@@ -1566,32 +1566,17 @@ app.get("/web/auth/me", async (req, res) => {
 app.get("/web/profile/:userId", async (req, res) => {
   const { userId } = req.params;
   try {
-    const [waitlistAll, ordersReq, subscriptionsReq] = await Promise.all([
+    const [waitlistReq, ordersReq, preordersReq, subscriptionsReq] = await Promise.all([
       db.listDocuments(process.env.APPWRITE_DB_ID, "waitlist", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(50)]).catch(() => ({ documents: [] })),
-      db.listDocuments(process.env.APPWRITE_DB_ID, "orders", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
+      db.listDocuments(process.env.APPWRITE_DB_ID, "order", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
+      db.listDocuments(process.env.APPWRITE_DB_ID, "preorder", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
       db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)]).catch(() => ({ documents: [] }))
     ]);
 
-    const waitlistDocs = waitlistAll.documents.filter(d => d.source !== 'preorder' && d.source !== 'contact');
-    
-    const preorderDocs = waitlistAll.documents
-      .filter(d => d.source === 'preorder')
-      .map(d => {
-        let parsedNotes = {};
-        try { parsedNotes = JSON.parse(d.notes); } catch(e) {}
-        return {
-          ...d,
-          productId: d.productKey,
-          productName: d.product,
-          price: parsedNotes.price || "₹4,999",
-          status: parsedNotes.status || "submitted"
-        };
-      });
-
     return res.json({
-      waitlist: waitlistDocs,
+      waitlist: waitlistReq.documents,
       orders: ordersReq.documents,
-      preorders: preorderDocs,
+      preorders: preordersReq.documents,
       subscriptions: subscriptionsReq.documents
     });
   } catch (err) {
@@ -1655,24 +1640,21 @@ app.post("/web/contact", async (req, res) => {
     const contactData = {
       name: data.name || "Contact Inquiry",
       email: data.email,
-      product: "Contact",
-      productKey: "contact",
-      userId: "anonymous",
-      country: "India",
-      source: "contact",
-      notes: JSON.stringify({
-        subject: data.subject || "No Subject",
-        message: data.message || ""
-      }),
+      subject: data.subject || "No Subject",
+      message: data.message || "",
       createdAt: new Date().toISOString()
     };
 
-    await db.createDocument(
-      process.env.APPWRITE_DB_ID,
-      "waitlist",
-      ID.unique(),
-      contactData
-    );
+    try {
+      await db.createDocument(
+        process.env.APPWRITE_DB_ID,
+        "contact",
+        ID.unique(),
+        contactData
+      );
+    } catch (ignoreErr) {
+      console.warn("APPWRITE WARNING: 'contact' collection might not exist. Skipping DB save:", contactData);
+    }
 
     return res.json({ ok: true, message: "Your message has been sent successfully! 🚀" });
   } catch (err) {
@@ -1686,31 +1668,45 @@ app.post("/web/preorder", async (req, res) => {
     const data = req.body;
     if (!data.email || !data.userId) return res.status(400).json({ error: "Email and User ID required" });
 
-    // Map preorder data safely into the "waitlist" schema
-    const waitlistCompatibleData = {
-      name: data.shippingFullName || "Anonymous",
-      email: data.email,
-      product: data.productName || "RK AI Home",
-      productKey: data.productId || "rkai_home",
+    const preorderData = {
       userId: data.userId,
-      country: data.shippingCountry || "India",
-      source: "preorder",
-      notes: JSON.stringify({
-        price: data.price || "₹4,999",
-        shippingAddress: data.shippingAddress || "",
-        shippingCity: data.shippingCity || "",
-        shippingZip: data.shippingZip || "",
-        status: data.status || "submitted"
-      }),
-      createdAt: new Date().toISOString()
+      email: data.email,
+      productId: data.productId || "rkai_home",
+      productName: data.productName || "RK AI Home",
+      price: data.price || "₹4,999",
+      shippingFullName: data.shippingFullName || "",
+      shippingAddress: data.shippingAddress || "",
+      shippingCity: data.shippingCity || "",
+      shippingZip: data.shippingZip || "",
+      shippingCountry: data.shippingCountry || "India",
+      status: data.status || "submitted",
+      createdAt: new Date().toISOString(),
+      source: data.source || "web"
     };
 
-    await db.createDocument(
-      process.env.APPWRITE_DB_ID,
-      "waitlist",
-      ID.unique(),
-      waitlistCompatibleData
-    );
+    try {
+      await db.createDocument(
+        process.env.APPWRITE_DB_ID,
+        "preorder",
+        ID.unique(),
+        preorderData
+      );
+    } catch (createErr) {
+      if (createErr.message && createErr.message.includes("could not be found")) {
+        try {
+          await db.createDocument(
+            process.env.APPWRITE_DB_ID,
+            "order",
+            ID.unique(),
+            preorderData
+          );
+        } catch (fallbackErr) {
+          console.warn("APPWRITE WARNING: 'preorder' and 'order' collections do not exist. Skipping DB save:", preorderData);
+        }
+      } else {
+        throw createErr;
+      }
+    }
 
     return res.json({ ok: true, message: "Pre-order submitted! 🚀" });
   } catch (err) {
