@@ -565,10 +565,15 @@ app.get("/auth/google/callback", async (req, res) => {
     const { code, state } = req.query;
     // Decode state carefully
     const decodedState = decodeURIComponent(state || "");
-    const slug = decodedState.split('|')[0];
     
-    if (!code || !slug) {
-      console.error("Missing code or state:", { code: !!code, slug });
+    // 🚀 NEW: Detect if this is a web login flow
+    const isWebFlow = decodedState.startsWith("web|");
+    const webRedirect = isWebFlow ? decodedState.split('|')[1] : null;
+    
+    const slug = isWebFlow ? null : decodedState.split('|')[0];
+    
+    if (!code || (!isWebFlow && !slug)) {
+      console.error("Missing code or state:", { code: !!code, slug, isWebFlow });
       return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=missing_params`);
     }
 
@@ -603,17 +608,7 @@ app.get("/auth/google/callback", async (req, res) => {
     const access_token = tokenJson.access_token;
     const refresh_token = tokenJson.refresh_token;
 
-    // ✅ Check if refresh_token exists
-    if (!refresh_token) {
-      console.error("❌ No refresh_token received! User may have already authorized.");
-      console.log("💡 User needs to revoke access and re-authorize, or we use existing token");
-      return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=no_refresh_token`);
-    }
-
-    console.log("✅ Got access_token:", access_token ? "YES" : "NO");
-    console.log("✅ Got refresh_token:", refresh_token ? "YES" : "NO");
-
-    // Get user email
+    // Get user email & info
     const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${access_token}` }
     });
@@ -624,6 +619,34 @@ app.get("/auth/google/callback", async (req, res) => {
 
     const userInfo = await userInfoRes.json();
     console.log("✅ User email:", userInfo.email);
+
+    // ── CASE 1: WEB LOGIN FLOW ──
+    if (isWebFlow) {
+      // Find or create user in Appwrite
+      let appwriteUser;
+      try {
+        const existing = await users.list([Query.equal("email", userInfo.email)]);
+        if (existing.total > 0) {
+          appwriteUser = existing.users[0];
+        } else {
+          appwriteUser = await users.create(ID.unique(), userInfo.email, undefined, undefined, userInfo.name);
+        }
+      } catch (err) {
+        console.error("[Web Auth] Appwrite User Error:", err);
+        return res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
+      }
+
+      // Redirect to frontend with token and userId
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/web-callback?token=${appwriteUser.$id}&userId=${appwriteUser.$id}&redirect=${encodeURIComponent(webRedirect)}`);
+    }
+
+    // ── CASE 2: DEVICE LINKING FLOW (Existing Logic) ──
+    // ✅ Check if refresh_token exists
+    if (!refresh_token) {
+      console.error("❌ No refresh_token received! User may have already authorized.");
+      console.log("💡 User needs to revoke access and re-authorize, or we use existing token");
+      return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=no_refresh_token`);
+    }
 
     // Check for existing folder or create new one (search by name)
     const searchRes = await fetch(
@@ -684,8 +707,8 @@ app.get("/auth/google/callback", async (req, res) => {
   } catch (err) {
     console.error("OAuth callback error:", err);
     const decodedStateErr = decodeURIComponent(req.query.state || "");
-    const isNative = decodedStateErr.includes('|native');
-    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+    const isWebFlow = decodedStateErr.startsWith("web|");
+    const baseRedirectUrl = isWebFlow ? `${process.env.FRONTEND_URL}/login` : (decodedStateErr.includes('|native') ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`);
     return res.redirect(`${baseRedirectUrl}?google_error=callback_failed`);
   }
 });
@@ -1522,60 +1545,16 @@ app.get("/web/auth/google/start", (req, res) => {
   const redirect = req.query.redirect || "/";
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
-    redirect_uri: `https://rk-ai-backend.onrender.com/web/auth/google/callback`,
+    redirect_uri: `https://rk-ai-backend.onrender.com/auth/google/callback`,
     response_type: "code",
     scope: "openid email profile",
-    state: redirect
+    state: `web|${redirect}`
   });
   return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
 });
 
-app.get("/web/auth/google/callback", async (req, res) => {
-  try {
-    const { code, state } = req.query;
-    const body = new URLSearchParams({
-      code,
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: `https://rk-ai-backend.onrender.com/web/auth/google/callback`,
-      grant_type: "authorization_code"
-    });
-
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString()
-    });
-    const tokens = await tokenRes.json();
-    
-    const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-    const googleUser = await userRes.json();
-
-    // Find or create user in Appwrite
-    let appwriteUser;
-    try {
-      const existing = await users.list([Query.equal("email", googleUser.email)]);
-      if (existing.total > 0) {
-        appwriteUser = existing.users[0];
-      } else {
-        appwriteUser = await users.create(ID.unique(), googleUser.email, undefined, undefined, googleUser.name);
-      }
-    } catch (err) {
-      console.error("[Web Auth] Appwrite User Error:", err);
-      return res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
-    }
-
-    // Redirect to frontend with token and userId (for the web-callback page to handle)
-    // We'll use the Appwrite userId as a token for now (simulating a session)
-    // In a real app, you'd create a proper session or JWT
-    return res.redirect(`${process.env.FRONTEND_URL}/auth/web-callback?token=${appwriteUser.$id}&userId=${appwriteUser.$id}&redirect=${encodeURIComponent(state)}`);
-  } catch (err) {
-    console.error("[Web Auth] Callback Error:", err);
-    return res.redirect(`${process.env.FRONTEND_URL}/login?error=callback_failed`);
-  }
-});
+// Remove the separate /web/auth/google/callback as we'll unify it
+// (I will remove it in the next step when I edit the unified handler)
 
 app.get("/web/auth/me", async (req, res) => {
   const userId = req.headers["x-user-id"];
