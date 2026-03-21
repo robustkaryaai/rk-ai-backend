@@ -17,11 +17,21 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "https://rexycore.vercel.app";
 const hf = new HfInference(process.env.HF_TOKEN);
 const app = express();
 
-// 🚀 ENHANCED CORS (Manual implementation to avoid extra dependency)
+// 🚀 ENHANCED CORS (With Credentials Support for Vercel)
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  const origin = req.headers.origin;
+  const allowedOrigins = ["https://rexycore.vercel.app", "http://localhost:3000"];
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Credentials", "true");
+  } else {
+    res.header("Access-Control-Allow-Origin", "*");
+  }
+  
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Appwrite-Project, X-Appwrite-Key");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Appwrite-Project, X-Appwrite-Key, x-user-id");
+  
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
