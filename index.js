@@ -816,6 +816,28 @@ app.get("/auth/spotify/callback", async (req, res) => {
   }
 });
 
+// ---------------- STT LOG STREAMING ----------------
+const deviceSTTLogs = new Map();
+
+app.post("/device/:slug/stt-log", async (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  const { text, timestamp } = req.body;
+  if (!text) return res.json({ ok: false });
+  
+  if (!deviceSTTLogs.has(slug)) deviceSTTLogs.set(slug, []);
+  const logs = deviceSTTLogs.get(slug);
+  logs.unshift({ text, timestamp: timestamp || new Date().toISOString() });
+  if (logs.length > 50) logs.pop();
+  
+  return res.json({ ok: true });
+});
+
+app.get("/device/:slug/stt-log", (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  const logs = deviceSTTLogs.get(slug) || [];
+  return res.json({ logs });
+});
+
 // ---------------- DEVICE SETTINGS ----------------
 app.post("/device/:slug/settings", async (req, res) => {
   try {
@@ -828,6 +850,20 @@ app.post("/device/:slug/settings", async (req, res) => {
     if (!device) return res.status(404).json({ error: "device_not_found" });
 
     const updateData = { ...settings };
+
+    // Safely pack unmapped UI configs into systemStatus so Appwrite doesn't crash on missing schema attributes
+    let currentConfig = {};
+    try { currentConfig = JSON.parse(device.systemStatus || "{}"); } catch(e) {}
+    
+    let configUpdated = false;
+    if (settings.nightProtocolEnabled !== undefined) {
+      currentConfig.nightProtocolEnabled = settings.nightProtocolEnabled;
+      delete updateData.nightProtocolEnabled; // Remove so Appwrite doesn't throw Attribute Error
+      configUpdated = true;
+    }
+    if (configUpdated) {
+      updateData.systemStatus = JSON.stringify(currentConfig);
+    }
 
     // 🚀 If assistantName is updated, use Gemini to generate wake word variations
     if (settings.assistantName && settings.assistantName !== device.assistantName) {
@@ -864,7 +900,11 @@ app.post("/device/:slug/settings", async (req, res) => {
       updateData
     );
 
-    return res.json({ success: true, wakeWords: updateData.wakeWords ? JSON.parse(updateData.wakeWords) : null });
+    return res.json({ 
+      success: true, 
+      wakeWords: updateData.wakeWords ? JSON.parse(updateData.wakeWords) : null,
+      systemStatus: currentConfig
+    });
   } catch (err) {
     console.error(`[Settings] Error updating settings:`, err);
     res.status(500).json({ error: String(err) });
