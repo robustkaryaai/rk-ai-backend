@@ -1,4 +1,4 @@
-import { Client, Databases, Query, ID } from "node-appwrite";
+import { Client, Databases, Query, ID, Users } from "node-appwrite";
 import dotenv from "dotenv";
 
 dotenv.config(); // ✅ THIS IS CRITICAL
@@ -9,6 +9,7 @@ const client = new Client()
   .setKey(process.env.APPWRITE_API_KEY);          // ✅ THIS WAS MISSING
 
 export const db = new Databases(client);
+export const users = new Users(client);
 
 export async function getUserPlanBySlug(slug) {
   const res = await db.listDocuments(

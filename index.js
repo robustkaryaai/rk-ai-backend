@@ -2,8 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 
 import { logInfo, logError } from "./utils/logger.js";
-import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug } from "./services/appwriteClient.js";
-import { db } from "./services/appwriteClient.js";
+import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug, db, users } from "./services/appwriteClient.js";
 import { Query, ID } from "node-appwrite";
 import { loadChat, appendChat, appendUser, updateLastAI, deleteChatEntry } from "./memory.js";
 import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
@@ -1517,8 +1516,84 @@ app.get("/shoom/debug/devices", (req, res) => {
   });
 });
 
-// ---------------- WAITLIST & TRIALS ----------------
-app.post("/waitlist", async (req, res) => {
+// ---------------- WEB AUTH & DATA (Rexycore Website) ----------------
+
+app.get("/web/auth/google/start", (req, res) => {
+  const redirect = req.query.redirect || "/";
+  const params = new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    redirect_uri: `https://rk-ai-backend.onrender.com/web/auth/google/callback`,
+    response_type: "code",
+    scope: "openid email profile",
+    state: redirect
+  });
+  return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+app.get("/web/auth/google/callback", async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const body = new URLSearchParams({
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: `https://rk-ai-backend.onrender.com/web/auth/google/callback`,
+      grant_type: "authorization_code"
+    });
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString()
+    });
+    const tokens = await tokenRes.json();
+    
+    const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    const googleUser = await userRes.json();
+
+    // Find or create user in Appwrite
+    let appwriteUser;
+    try {
+      const existing = await users.list([Query.equal("email", googleUser.email)]);
+      if (existing.total > 0) {
+        appwriteUser = existing.users[0];
+      } else {
+        appwriteUser = await users.create(ID.unique(), googleUser.email, undefined, undefined, googleUser.name);
+      }
+    } catch (err) {
+      console.error("[Web Auth] Appwrite User Error:", err);
+      return res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
+    }
+
+    // Redirect to frontend with token and userId (for the web-callback page to handle)
+    // We'll use the Appwrite userId as a token for now (simulating a session)
+    // In a real app, you'd create a proper session or JWT
+    return res.redirect(`${process.env.FRONTEND_URL}/auth/web-callback?token=${appwriteUser.$id}&userId=${appwriteUser.$id}&redirect=${encodeURIComponent(state)}`);
+  } catch (err) {
+    console.error("[Web Auth] Callback Error:", err);
+    return res.redirect(`${process.env.FRONTEND_URL}/login?error=callback_failed`);
+  }
+});
+
+app.get("/web/auth/me", async (req, res) => {
+  const userId = req.headers["x-user-id"];
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const user = await users.get(userId);
+    return res.json({ user });
+  } catch (err) {
+    return res.status(401).json({ error: "Session invalid" });
+  }
+});
+
+app.post("/web/auth/logout", (req, res) => {
+  return res.json({ ok: true });
+});
+
+app.post("/web/waitlist", async (req, res) => {
   try {
     const { name, email, paymentIntent, featureDemand, slug } = req.body;
     
@@ -1548,7 +1623,12 @@ app.post("/waitlist", async (req, res) => {
   }
 });
 
-app.get("/waitlist/stats", async (req, res) => {
+app.post("/waitlist", (req, res) => {
+  // Simple redirect/alias to the web version for compatibility
+  return app._router.handle(req, res, () => {});
+});
+
+app.get("/web/waitlist/stats", async (req, res) => {
   try {
     const list = await db.listDocuments(
       process.env.APPWRITE_DB_ID,
@@ -1567,6 +1647,10 @@ app.get("/waitlist/stats", async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: String(err) });
   }
+});
+
+app.get("/waitlist/stats", (req, res) => {
+  return app._router.handle(req, res, () => {});
 });
 
 // 🚀 START TRIAL (Device-based tracking)
