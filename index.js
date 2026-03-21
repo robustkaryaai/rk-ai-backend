@@ -1517,6 +1517,91 @@ app.get("/shoom/debug/devices", (req, res) => {
   });
 });
 
+// ---------------- WAITLIST & TRIALS ----------------
+app.post("/waitlist", async (req, res) => {
+  try {
+    const { name, email, paymentIntent, featureDemand, slug } = req.body;
+    
+    if (!email) return res.status(400).json({ error: "Email required" });
+
+    // Store in Appwrite
+    const waitlistData = {
+      name: name || "Anonymous",
+      email,
+      paymentIntent: paymentIntent || "Maybe",
+      featureDemand: featureDemand || "",
+      slug: String(slug || "web"),
+      timestamp: new Date().toISOString()
+    };
+
+    await db.createDocument(
+      process.env.APPWRITE_DB_ID,
+      "waitlist", 
+      ID.unique(),
+      waitlistData
+    );
+
+    return res.json({ ok: true, message: "Welcome to the future of AI Home Control! 🚀" });
+  } catch (err) {
+    console.error("WAITLIST ERROR:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/waitlist/stats", async (req, res) => {
+  try {
+    const list = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      "waitlist"
+    );
+
+    const total = list.total;
+    const yesCount = list.documents.filter(d => d.paymentIntent === "Yes").length;
+    const paymentIntentRate = total > 0 ? (yesCount / total) * 100 : 0;
+
+    return res.json({
+      totalSignups: total,
+      paymentIntentRate: paymentIntentRate.toFixed(1) + "%",
+      recentFeatures: list.documents.map(d => d.featureDemand).filter(f => f).slice(-10)
+    });
+  } catch (err) {
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+// 🚀 START TRIAL (Device-based tracking)
+app.post("/device/:slug/trial", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    
+    if (device.trialUsed === "true" || device.trialUsed === true) {
+      return res.status(400).json({ error: "Trial already used on this device" });
+    }
+
+    const trialDays = 7;
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + trialDays);
+
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      {
+        subscription: "true",
+        "subscription-tier": 1, // Student tier for trial
+        trialUsed: "true",
+        trialEnd: trialEnd.toISOString()
+      }
+    );
+
+    return res.json({ ok: true, message: `7-Day Free Trial Started! Ends on ${trialEnd.toDateString()}` });
+  } catch (err) {
+    console.error("TRIAL START ERROR:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT;
 app.listen(PORT, () => {
