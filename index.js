@@ -13,7 +13,7 @@ import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://rexycore.com";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://rexycore.vercel.app";
 const hf = new HfInference(process.env.HF_TOKEN);
 const app = express();
 
@@ -1553,24 +1553,59 @@ app.get("/web/auth/me", async (req, res) => {
   }
 });
 
+app.get("/web/profile/:userId", async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const [waitlist, orders, preorders, subscriptions] = await Promise.all([
+      db.listDocuments(process.env.APPWRITE_DB_ID, "waitlist", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]),
+      db.listDocuments(process.env.APPWRITE_DB_ID, "orders", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]),
+      db.listDocuments(process.env.APPWRITE_DB_ID, "preorders", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]),
+      db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)])
+    ]);
+
+    return res.json({
+      waitlist: waitlist.documents,
+      orders: orders.documents,
+      preorders: preorders.documents,
+      subscriptions: subscriptions.documents
+    });
+  } catch (err) {
+    console.error("PROFILE ERROR:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
 app.post("/web/auth/logout", (req, res) => {
   return res.json({ ok: true });
 });
 
 app.post("/web/waitlist", async (req, res) => {
   try {
-    const { name, email, paymentIntent, featureDemand, slug } = req.body;
+    const { 
+      name, email, phone, country, 
+      product, productKey, userId, 
+      paymentIntent, notes, featureDemand,
+      source, slug 
+    } = req.body;
     
     if (!email) return res.status(400).json({ error: "Email required" });
+
+    // Map featureDemand to notes if notes is missing (compat)
+    const finalNotes = notes || featureDemand || "";
 
     // Store in Appwrite
     const waitlistData = {
       name: name || "Anonymous",
       email,
+      phone: phone || "",
+      country: country || "India",
+      product: product || "Rexycore",
+      productKey: productKey || "rexycore",
+      userId: userId || "anonymous",
       paymentIntent: paymentIntent || "Maybe",
-      featureDemand: featureDemand || "",
-      slug: String(slug || "web"),
-      timestamp: new Date().toISOString()
+      notes: finalNotes,
+      source: source || "web",
+      createdAt: new Date().toISOString()
     };
 
     await db.createDocument(
@@ -1583,6 +1618,41 @@ app.post("/web/waitlist", async (req, res) => {
     return res.json({ ok: true, message: "Welcome to the future of AI Home Control! 🚀" });
   } catch (err) {
     console.error("WAITLIST ERROR:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/web/preorder", async (req, res) => {
+  try {
+    const data = req.body;
+    if (!data.email || !data.userId) return res.status(400).json({ error: "Email and User ID required" });
+
+    const preorderData = {
+      userId: data.userId,
+      email: data.email,
+      productId: data.productId || "rkai_home",
+      productName: data.productName || "RK AI Home",
+      price: data.price || "₹4,999",
+      shippingFullName: data.shippingFullName || "",
+      shippingAddress: data.shippingAddress || "",
+      shippingCity: data.shippingCity || "",
+      shippingZip: data.shippingZip || "",
+      shippingCountry: data.shippingCountry || "India",
+      status: data.status || "submitted",
+      createdAt: new Date().toISOString(),
+      source: data.source || "web"
+    };
+
+    await db.createDocument(
+      process.env.APPWRITE_DB_ID,
+      "preorders",
+      ID.unique(),
+      preorderData
+    );
+
+    return res.json({ ok: true, message: "Pre-order submitted! 🚀" });
+  } catch (err) {
+    console.error("PREORDER ERROR:", err);
     return res.status(500).json({ error: String(err) });
   }
 });
