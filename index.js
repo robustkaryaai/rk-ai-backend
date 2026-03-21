@@ -1662,13 +1662,18 @@ app.post("/web/preorder", async (req, res) => {
       );
     } catch (createErr) {
       if (createErr.message && createErr.message.includes("could not be found")) {
-        // Fallback: Use orders collection if preorders doesn't exist
-        await db.createDocument(
-          process.env.APPWRITE_DB_ID,
-          "orders",
-          ID.unique(),
-          preorderData
-        );
+        try {
+          // Fallback: Use orders collection
+          await db.createDocument(
+            process.env.APPWRITE_DB_ID,
+            "orders",
+            ID.unique(),
+            preorderData
+          );
+        } catch (fallbackErr) {
+          // If BOTH do not exist, just log it and don't break the frontend flow
+          console.warn("APPWRITE WARNING: 'preorders' and 'orders' collections do not exist. Skipping DB save:", preorderData);
+        }
       } else {
         throw createErr;
       }
