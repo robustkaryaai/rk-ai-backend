@@ -1602,6 +1602,46 @@ app.post("/device/:slug/trial", async (req, res) => {
   }
 });
 
+// ---------------- REAL-TIME COMMAND RELAY (HUB -> DESKTOP) ----------------
+const desktopConnections = new Map(); // slug -> response object
+
+app.get("/device/:slug/desktop-relay", (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  
+  // SSE (Server-Sent Events) setup for real-time relay
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  
+  console.log(`[Relay] Desktop Agent connected for slug: ${slug}`);
+  desktopConnections.set(slug, res);
+
+  // Keep connection alive with heartbeats
+  const keepAlive = setInterval(() => {
+    res.write(': keep-alive\n\n');
+  }, 30000);
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    desktopConnections.delete(slug);
+    console.log(`[Relay] Desktop Agent disconnected for slug: ${slug}`);
+  });
+});
+
+app.post("/device/:slug/to-desktop", async (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  const command = req.body; // { intent, parameters }
+
+  const desktopRes = desktopConnections.get(slug);
+  if (desktopRes) {
+    console.log(`[Relay] Sending command to desktop ${slug}:`, command);
+    desktopRes.write(`data: ${JSON.stringify(command)}\n\n`);
+    return res.json({ ok: true, message: "Relayed to desktop" });
+  } else {
+    return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+  }
+});
+
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT;
 app.listen(PORT, () => {
