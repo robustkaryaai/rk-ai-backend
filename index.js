@@ -11,6 +11,8 @@ import { callGemini, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
 import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./services/supabaseClient.js";
 import { HfInference } from "@huggingface/inference";
+// Your existing line — just add Databases, Account, Users if not already there
+import { Client, Account, Databases, Users, ID, Query } from "node-appwrite";
 
 dotenv.config();
 
@@ -1497,8 +1499,6 @@ app.get("/shoom/debug/devices", (req, res) => {
     devices
   });
 });
-
-import { Client, Account, Databases, ID, Query } from "node-appwrite";
 
 // ── Server-side Appwrite client (no platform restriction) ────────
 function getAppwriteClient() {
