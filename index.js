@@ -1623,13 +1623,19 @@ app.post("/device/:slug/trial", async (req, res) => {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
     
-    if (device.trialUsed === "true" || device.trialUsed === true) {
-      return res.status(400).json({ error: "Trial already used on this device" });
+    // We now allow "More Trials" - let's say up to 3 trials or if the user asks
+    // For now, let's just make it easier to restart a trial if it's been more than 30 days
+    const now = new Date();
+    const trialEnd = device.trialEnd ? new Date(device.trialEnd) : null;
+    const canRestartTrial = !trialEnd || (now - trialEnd > 30 * 24 * 60 * 60 * 1000);
+
+    if (device.trialUsed === "true" && !canRestartTrial) {
+      return res.status(400).json({ error: "Trial already used recently. Please join the waitlist or wait 30 days." });
     }
 
     const trialDays = 7;
-    const trialEnd = new Date();
-    trialEnd.setDate(trialEnd.getDate() + trialDays);
+    const newTrialEnd = new Date();
+    newTrialEnd.setDate(newTrialEnd.getDate() + trialDays);
 
     await db.updateDocument(
       process.env.APPWRITE_DB_ID,
@@ -1639,11 +1645,11 @@ app.post("/device/:slug/trial", async (req, res) => {
         subscription: "true",
         "subscription-tier": 1, // Student tier for trial
         trialUsed: "true",
-        trialEnd: trialEnd.toISOString()
+        trialEnd: newTrialEnd.toISOString()
       }
     );
 
-    return res.json({ ok: true, message: `7-Day Free Trial Started! Ends on ${trialEnd.toDateString()}` });
+    return res.json({ ok: true, message: `7-Day Free Trial Started! Ends on ${newTrialEnd.toDateString()}` });
   } catch (err) {
     console.error("TRIAL START ERROR:", err);
     return res.status(500).json({ error: String(err) });
