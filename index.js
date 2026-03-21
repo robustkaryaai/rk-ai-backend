@@ -5,7 +5,7 @@ import { logInfo, logError } from "./utils/logger.js";
 import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug } from "./services/appwriteClient.js";
 import { db } from "./services/appwriteClient.js";
 import { Query, ID } from "node-appwrite";
-import { loadChat, appendChat, appendUser, updateLastAI } from "./memory.js";
+import { loadChat, appendChat, appendUser, updateLastAI, deleteChatEntry } from "./memory.js";
 import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
 import { callGemini, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
@@ -440,6 +440,25 @@ app.get("/chat/:slug", async (req, res) => {
     return res.json({ chat });
   } catch (err) {
     logError("CHAT ERROR:", err);
+    return res.status(500).json({ error: "server_error" });
+  }
+});
+
+// ✅ DELETE SPECIFIC CHAT ENTRY
+app.delete("/chat/:slug/:index", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const index = parseInt(req.params.index, 10);
+
+    if (isNaN(index)) return res.status(400).json({ error: "invalid_index" });
+
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "invalid_slug" });
+
+    const chat = await deleteChatEntry(slug, index);
+    return res.json({ ok: true, chat });
+  } catch (err) {
+    logError("DELETE CHAT ERROR:", err);
     return res.status(500).json({ error: "server_error" });
   }
 });
@@ -1558,11 +1577,12 @@ async function upsertProfile(userId, userData) {
 
 // ================================================================
 // 1. GOOGLE OAUTH — START
-//    GET /web/auth/google/start?redirect=/dashboard
+//    GET /web/auth/google/start?redirect=/dashboard&platform=ios
 // ================================================================
 app.get("/web/auth/google/start", (req, res) => {
   const redirect = req.query.redirect || "/";
-  const state = Buffer.from(JSON.stringify({ redirect })).toString("base64");
+  const platform = req.query.platform || "web"; // 🚀 Added platform support
+  const state = Buffer.from(JSON.stringify({ redirect, platform })).toString("base64");
 
   const host = req.get("host") || "";
   const callbackUrl = host.includes("localhost")
@@ -1592,13 +1612,19 @@ app.get("/web/auth/google/callback", async (req, res) => {
   const { code, state } = req.query;
 
   let redirect = "/";
+  let platform = "web";
   try {
     const decoded = JSON.parse(Buffer.from(state, "base64").toString());
     redirect = decoded.redirect || "/";
+    platform = decoded.platform || "web";
   } catch (_) {}
 
   const frontendBase = process.env.FRONTEND_URL || "http://localhost:3000";
-  const failUrl = `${frontendBase}/login?error=oauth_failed`;
+  
+  // 🚀 For iOS, the failure should redirect to our custom scheme too
+  const failUrl = platform === 'ios' 
+    ? "rkai://auth/oauth2/failure?error=oauth_failed"
+    : `${frontendBase}/login?error=oauth_failed`;
 
   if (!code) return res.redirect(failUrl);
 
@@ -1692,8 +1718,15 @@ app.get("/web/auth/google/callback", async (req, res) => {
         avatar: googleUser.picture,
       });
 
-      // 6. Redirect back to frontend with token in both cookie + URL param
+      // 6. Redirect back to frontend or App custom scheme
       const safeRedirect = redirect.startsWith("/") ? redirect : "/";
+      
+      if (platform === 'ios') {
+        // 🚀 For iOS, return a scheme that the app's appUrlOpen listener handles
+        const bridgeUrl = `rkai://callback?userId=${encodeURIComponent(appwriteUserId)}&secret=${encodeURIComponent(sessionToken)}`;
+        return res.redirect(bridgeUrl);
+      }
+
       const successUrl = `${frontendBase}/auth/web-callback?token=${encodeURIComponent(sessionToken)}&userId=${encodeURIComponent(appwriteUserId)}&redirect=${encodeURIComponent(safeRedirect)}`;
 
       res.cookie("rk_web_token", sessionToken, {
