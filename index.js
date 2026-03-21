@@ -13,6 +13,7 @@ import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
 
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://rexycore.com";
 const hf = new HfInference(process.env.HF_TOKEN);
 const app = express();
 
@@ -528,7 +529,7 @@ app.get("/auth/google/start/:slug", async (req, res) => {
     if (!device || device.subscription !== "true") {
       console.log(`[Google OAuth] Refusing flow for ${slug} - Subscription not active.`);
       const isNative = state.includes('|native');
-      const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+      const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${FRONTEND_URL}/settings`;
       return res.redirect(`${baseRedirectUrl}?google_error=subscription_required`);
     }
 
@@ -574,7 +575,7 @@ app.get("/auth/google/callback", async (req, res) => {
     
     if (!code || (!isWebFlow && !slug)) {
       console.error("Missing code or state:", { code: !!code, slug, isWebFlow });
-      return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=missing_params`);
+      return res.redirect(`${FRONTEND_URL}/settings?google_error=missing_params`);
     }
 
     // 🚀 FORCE PRODUCTION URL IF ON RENDER
@@ -601,7 +602,7 @@ app.get("/auth/google/callback", async (req, res) => {
     if (!tokenRes.ok) {
       const errorText = await tokenRes.text();
       console.error(`Token exchange failed: ${tokenRes.status}`, errorText);
-      return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=token_exchange_failed`);
+      return res.redirect(`${FRONTEND_URL}/settings?google_error=token_exchange_failed`);
     }
 
     const tokenJson = await tokenRes.json();
@@ -614,7 +615,7 @@ app.get("/auth/google/callback", async (req, res) => {
     });
     if (!userInfoRes.ok) {
       console.error("Failed to fetch user info");
-      return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=userinfo_failed`);
+      return res.redirect(`${FRONTEND_URL}/settings?google_error=userinfo_failed`);
     }
 
     const userInfo = await userInfoRes.json();
@@ -633,11 +634,11 @@ app.get("/auth/google/callback", async (req, res) => {
         }
       } catch (err) {
         console.error("[Web Auth] Appwrite User Error:", err);
-        return res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
+        return res.redirect(`${FRONTEND_URL}/login?error=auth_failed`);
       }
 
       // Redirect to frontend with token and userId
-      return res.redirect(`${process.env.FRONTEND_URL}/auth/web-callback?token=${appwriteUser.$id}&userId=${appwriteUser.$id}&redirect=${encodeURIComponent(webRedirect)}`);
+      return res.redirect(`${FRONTEND_URL}/auth/web-callback?token=${appwriteUser.$id}&userId=${appwriteUser.$id}&redirect=${encodeURIComponent(webRedirect)}`);
     }
 
     // ── CASE 2: DEVICE LINKING FLOW (Existing Logic) ──
@@ -645,7 +646,7 @@ app.get("/auth/google/callback", async (req, res) => {
     if (!refresh_token) {
       console.error("❌ No refresh_token received! User may have already authorized.");
       console.log("💡 User needs to revoke access and re-authorize, or we use existing token");
-      return res.redirect(`${process.env.FRONTEND_URL}/settings?google_error=no_refresh_token`);
+      return res.redirect(`${FRONTEND_URL}/settings?google_error=no_refresh_token`);
     }
 
     // Check for existing folder or create new one (search by name)
@@ -700,7 +701,7 @@ app.get("/auth/google/callback", async (req, res) => {
 
     // 🚀 Robust Deep Link Redirect
     const isNative = decodedState.includes('|native');
-    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${FRONTEND_URL}/settings`;
     
     console.log(`✅ Appwrite updated! Native: ${isNative}, Redirecting to: ${baseRedirectUrl}`);
     return res.redirect(`${baseRedirectUrl}?google_connected=true`);
@@ -708,7 +709,7 @@ app.get("/auth/google/callback", async (req, res) => {
     console.error("OAuth callback error:", err);
     const decodedStateErr = decodeURIComponent(req.query.state || "");
     const isWebFlow = decodedStateErr.startsWith("web|");
-    const baseRedirectUrl = isWebFlow ? `${process.env.FRONTEND_URL}/login` : (decodedStateErr.includes('|native') ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`);
+    const baseRedirectUrl = isWebFlow ? `${FRONTEND_URL}/login` : (decodedStateErr.includes('|native') ? 'com.rexycore.rkai://settings' : `${FRONTEND_URL}/settings`);
     return res.redirect(`${baseRedirectUrl}?google_error=callback_failed`);
   }
 });
@@ -754,7 +755,7 @@ app.get("/auth/spotify/callback", async (req, res) => {
 
     if (!code || !slug) {
       console.error("Missing code or state:", { code: !!code, slug });
-      return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_error=missing_params`);
+      return res.redirect(`${FRONTEND_URL}/settings?spotify_error=missing_params`);
     }
 
     // 🚀 FORCE PRODUCTION URL IF ON RENDER
@@ -781,7 +782,7 @@ app.get("/auth/spotify/callback", async (req, res) => {
     });
 
     if (!tokenRes.ok) {
-      return res.redirect(`${process.env.FRONTEND_URL}/settings?spotify_error=token_exchange_failed`);
+      return res.redirect(`${FRONTEND_URL}/settings?spotify_error=token_exchange_failed`);
     }
 
     const tokenJson = await tokenRes.json();
@@ -809,14 +810,14 @@ app.get("/auth/spotify/callback", async (req, res) => {
     }
 
     const isNative = decodedState.includes('|native');
-    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${FRONTEND_URL}/settings`;
 
     return res.redirect(`${baseRedirectUrl}?spotify_connected=true`);
   } catch (err) {
     console.error("Spotify OAuth error:", err);
     const decodedStateErr = decodeURIComponent(req.query.state || "");
     const isNative = decodedStateErr.includes('|native');
-    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${process.env.FRONTEND_URL}/settings`;
+    const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${FRONTEND_URL}/settings`;
     return res.redirect(`${baseRedirectUrl}?spotify_error=callback_failed`);
   }
 });
