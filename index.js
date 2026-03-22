@@ -1,5 +1,6 @@
 import express from "express";
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 import { logInfo, logError } from "./utils/logger.js";
 import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug, db, users } from "./services/appwriteClient.js";
@@ -126,6 +127,7 @@ INTENTS
 - alarm: set alarms with specific times (extract time from prompt).
 - announcement: make announcements, broadcast messages, notify.
 - period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music.
+- lumina_coding: user is starting a coding session on Lumina OS / Lumina — wants smart lights + PC workspace (IDE, project folder) prepared. Examples: "I'm coming to code on Lumina", "prepare my Lumina workspace", "set up for coding on Lumina OS".
 
 STRICT CLASSIFICATION RULES
 1) Generative intents (docx, ppt, note, planner, timetable, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note) MUST ONLY be triggered if the user EXPLICITLY uses a verb like "make", "generate", "create", "build", "write", "render", or "prepare". 
@@ -145,12 +147,13 @@ STRICT CLASSIFICATION RULES
 11) "emergency", "fire", "evacuate", "alert" → "emergency_alarm" or "fire_alarm".
 12) Viva/interview/yourself/oral questions → "chat".
 13) Output must be pure JSON; do not wrap in markdown; no commentary.
+14) If the user wants Lumina OS / Lumina coding environment with desk and PC → intent = "lumina_coding". Optional parameters: "folder" (absolute path if they name a project), "ide" (e.g. "Visual Studio Code", "Cursor").
 
 
 OUTPUT SCHEMA
 [
   {
-    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music",
+    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music" | "lumina_coding",
     "parameters": {
       "prompt": "description or command",
       "location": "use Delhi, India if not provided for weather/news",
@@ -189,6 +192,10 @@ User: "announce that dinner is ready"
 User: "set alarm for 8 AM"
 [
   { "intent": "alarm", "parameters": { "prompt": "wake up", "time": "8:00 AM" } }
+]
+User: "I'm coming to code on Lumina, get everything ready"
+[
+  { "intent": "lumina_coding", "parameters": { "prompt": "prepare Lumina coding workspace" } }
 ]
 
 Now only output JSON following the schema and rules.`;
@@ -403,7 +410,7 @@ async function handleTextRequest(req, res, slug, text, device) {
     const isMusic = intents.some(i => i?.intent === "music");
 
     // Strategy: Priority-based selection
-    const priorityIntents = ["music", "announcement", "chat", "general", "weather", "news"];
+    const priorityIntents = ["music", "lumina_coding", "announcement", "chat", "general", "weather", "news"];
     
     // Find first matching high-priority intent result
     for (const pIntent of priorityIntents) {
@@ -526,14 +533,33 @@ app.get("/limits/:slug", async (req, res) => {
     const isPro = device.subscription === "true";
     const trialUsed = device.trialUsed === "true" || device.trialUsed === true;
     const trialEnd = device.trialEnd || null;
+    const now = new Date();
+    const trialEndDate = trialEnd ? new Date(trialEnd) : null;
+    const trialActive =
+      isPro &&
+      trialUsed &&
+      trialEndDate &&
+      trialEndDate > now;
+
+    let sys = {};
+    try {
+      sys = JSON.parse(device.systemStatus || "{}");
+    } catch (e) {}
+    const trialSecretPresent = !!sys.trialSecret;
+
+    // UI shows "infinity" while trial is active (device still uses numeric tier for quotas)
+    const displayTier = trialActive ? "infinity" : tier;
 
     return res.json({
       used: todayLimits,
       allowed: tierLimits,
       tier,
+      displayTier,
       isPro,
       trialUsed,
-      trialEnd
+      trialEnd,
+      trialActive: !!trialActive,
+      trialSecretPresent
     });
   } catch (err) {
     logError("LIMITS ERROR:", err);
@@ -1140,14 +1166,31 @@ app.delete("/device/:slug/file/:filename", async (req, res) => {
   }
 });
 
-// ---------------- DEVICE UPDATE STATUS (BUSY/DOWNLOAD) ----------------
+// ---------------- DEVICE UPDATE STATUS (BUSY/DOWNLOAD + SMART DEVICES FROM HUB) ----------------
 app.post("/device/:slug/update-status", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
-    const { busyState, downloadProgress } = req.body;
+    const { busyState, downloadProgress, smart_devices } = req.body;
 
     if (busyState) deviceBusyState.set(slug, busyState);
     if (downloadProgress !== undefined) deviceDownloadProgress.set(slug, downloadProgress);
+
+    // Pi network scan posts discovered bulbs so the mobile app can see them (same field as /settings).
+    if (smart_devices !== undefined && Array.isArray(smart_devices)) {
+      try {
+        const device = await getUserPlanBySlug(slug);
+        if (device) {
+          await db.updateDocument(
+            process.env.APPWRITE_DB_ID,
+            process.env.APPWRITE_DEVICES_COLLECTION,
+            device.$id,
+            { smart_devices: JSON.stringify(smart_devices) }
+          );
+        }
+      } catch (dbErr) {
+        console.error("[update-status] smart_devices persist failed:", dbErr);
+      }
+    }
 
     return res.json({ ok: true });
   } catch (err) {
@@ -1803,21 +1846,41 @@ app.get("/waitlist/stats", (req, res) => {
   return app._router.handle(req, res, () => {});
 });
 
-// 🚀 START TRIAL (Device-based tracking)
+// 🚀 START TRIAL (Device-based tracking + hardware-bound secret in systemStatus)
 app.post("/device/:slug/trial", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
-    
-    // We now allow "More Trials" - let's say up to 3 trials or if the user asks
-    // For now, let's just make it easier to restart a trial if it's been more than 30 days
+
     const now = new Date();
-    const trialEnd = device.trialEnd ? new Date(device.trialEnd) : null;
-    const canRestartTrial = !trialEnd || (now - trialEnd > 30 * 24 * 60 * 60 * 1000);
+    const prevEnd = device.trialEnd ? new Date(device.trialEnd) : null;
+
+    if (prevEnd && prevEnd > now) {
+      return res.status(400).json({
+        error: "trial_already_active",
+        message: "Trial is already active on this device.",
+        trialEnd: device.trialEnd
+      });
+    }
+
+    const canRestartTrial =
+      !prevEnd || now - prevEnd > 30 * 24 * 60 * 60 * 1000;
 
     if (device.trialUsed === "true" && !canRestartTrial) {
-      return res.status(400).json({ error: "Trial already used recently. Please join the waitlist or wait 30 days." });
+      return res.status(400).json({
+        error: "trial_cooldown",
+        message: "Trial already used on this device. Wait 30 days after expiry or join the waitlist."
+      });
     }
+
+    let sys = {};
+    try {
+      sys = JSON.parse(device.systemStatus || "{}");
+    } catch (e) {}
+    if (!sys.trialSecret) {
+      sys.trialSecret = crypto.randomBytes(32).toString("hex");
+    }
+    sys.trialStartedAt = now.toISOString();
 
     const trialDays = 7;
     const newTrialEnd = new Date();
@@ -1829,13 +1892,18 @@ app.post("/device/:slug/trial", async (req, res) => {
       device.$id,
       {
         subscription: "true",
-        "subscription-tier": 1, // Student tier for trial
+        "subscription-tier": 1,
         trialUsed: "true",
-        trialEnd: newTrialEnd.toISOString()
+        trialEnd: newTrialEnd.toISOString(),
+        systemStatus: JSON.stringify(sys)
       }
     );
 
-    return res.json({ ok: true, message: `7-Day Free Trial Started! Ends on ${newTrialEnd.toDateString()}` });
+    return res.json({
+      ok: true,
+      message: `7-Day Free Trial Started! Ends on ${newTrialEnd.toDateString()}`,
+      trialEnd: newTrialEnd.toISOString()
+    });
   } catch (err) {
     console.error("TRIAL START ERROR:", err);
     return res.status(500).json({ error: String(err) });

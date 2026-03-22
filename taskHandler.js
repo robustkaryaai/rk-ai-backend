@@ -11,6 +11,7 @@ import { handleMusic } from "./modules/musicPlayer.js";
 import { callGemini } from "./services/gemini.js";
 import { getSlugStorageUsed } from "./services/supabaseClient.js";
 import { checkAndConsume } from "./limitManager.js";
+import { getUserPlanBySlug, db } from "./services/appwriteClient.js";
 
 /* ---------------- MCU PASS THROUGH ---------------- */
 const PASS_THROUGH = [
@@ -205,6 +206,39 @@ export async function handleIntents(slug, intents, context = {}) {
         const reply = "🗑️ Schedule deleted.";
         await appendChat(slug, userPrompt, reply);
         results.push({ intent, parameters, execution: "microcontroller", reply });
+        continue;
+      }
+
+      /* -------- LUMINA CODING (Hub lights + Desktop relay via Pi) -------- */
+      if (intent === "lumina_coding") {
+        const backend =
+          process.env.PUBLIC_BACKEND_URL ||
+          process.env.BACKEND_URL ||
+          "https://rk-ai-backend.onrender.com";
+        const norm = String(slug).padStart(9, "0");
+        let queued = false;
+        try {
+          const fr = await fetch(`${backend}/device/${norm}/command`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              command_type: "ecosystem_routine",
+              payload: {
+                routine: "lumina_coding",
+                folder: parameters.folder || null,
+                ide: parameters.ide || null,
+              },
+            }),
+          });
+          queued = fr.ok;
+        } catch (err) {
+          console.error("[lumina_coding] queue failed:", err);
+        }
+        const reply = queued
+          ? "Your Lumina coding flow is queued: lights first, then your desktop will open the IDE and project."
+          : "I could not reach your RK hub to start the Lumina setup. Check that your device is online.";
+        await appendChat(slug, userPrompt, reply);
+        results.push(reply);
         continue;
       }
 
