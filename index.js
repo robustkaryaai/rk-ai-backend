@@ -18,6 +18,8 @@ import {
   syncTuyaDevicesForDevice,
   controlCloudSmartDevice,
 } from "./services/smartHomeService.js";
+import { getWaitlistStatus, upsertWaitlistEntry } from "./services/waitlistService.js";
+import { isAuthorizedDesktopRelayRequest, openDesktopRelayConnection, relayDesktopCommand } from "./services/desktopRelayService.js";
 import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
@@ -1846,44 +1848,25 @@ app.post("/web/auth/logout", (req, res) => {
 
 app.post("/web/waitlist", async (req, res) => {
   try {
-    const { 
-      name, email, phone, country, 
-      product, productKey, userId, 
-      paymentIntent, notes, featureDemand,
-      source, slug 
-    } = req.body;
-    
-    if (!email) return res.status(400).json({ error: "Email required" });
-
-    // Map featureDemand to notes if notes is missing (compat)
-    const finalNotes = notes || featureDemand || "";
-
-    // Store in Appwrite
-    const waitlistData = {
-      name: name || "Anonymous",
-      email,
-      phone: phone || "",
-      country: country || "India",
-      product: product || "Rexycore",
-      productKey: productKey || "rexycore",
-      userId: userId || "anonymous",
-      paymentIntent: paymentIntent || "Maybe",
-      notes: finalNotes,
-      source: source || "web",
-      createdAt: new Date().toISOString()
-    };
-
-    await db.createDocument(
-      process.env.APPWRITE_DB_ID,
-      "waitlist", 
-      ID.unique(),
-      waitlistData
-    );
-
-    return res.json({ ok: true, message: "Welcome to the future of AI Home Control! 🚀" });
+    const result = await upsertWaitlistEntry(req.body || {});
+    return res.json(result);
   } catch (err) {
     console.error("WAITLIST ERROR:", err);
-    return res.status(500).json({ error: String(err) });
+    return res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+app.get("/web/waitlist/status", async (req, res) => {
+  try {
+    const result = await getWaitlistStatus({
+      userId: req.query.userId || "",
+      email: req.query.email || "",
+      productKey: req.query.productKey || "",
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error("WAITLIST STATUS ERROR:", err);
+    return res.status(500).json({ error: String(err.message || err) });
   }
 });
 
@@ -2163,44 +2146,23 @@ app.post("/device/:slug/trial", async (req, res) => {
   }
 });
 
-// ---------------- REAL-TIME COMMAND RELAY (HUB -> DESKTOP) ----------------
-const desktopConnections = new Map(); // slug -> response object
-
 app.get("/device/:slug/desktop-relay", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
-  
-  // SSE (Server-Sent Events) setup for real-time relay
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  
-  console.log(`[Relay] Desktop Agent connected for slug: ${slug}`);
-  desktopConnections.set(slug, res);
-
-  // Keep connection alive with heartbeats
-  const keepAlive = setInterval(() => {
-    res.write(': keep-alive\n\n');
-  }, 30000);
-
-  req.on("close", () => {
-    clearInterval(keepAlive);
-    desktopConnections.delete(slug);
-    console.log(`[Relay] Desktop Agent disconnected for slug: ${slug}`);
-  });
+  openDesktopRelayConnection(slug, req, res);
 });
 
 app.post("/device/:slug/to-desktop", async (req, res) => {
   const slug = normalizeSlug(req.params.slug);
-  const command = req.body; // { intent, parameters }
-
-  const desktopRes = desktopConnections.get(slug);
-  if (desktopRes) {
-    console.log(`[Relay] Sending command to desktop ${slug}:`, command);
-    desktopRes.write(`data: ${JSON.stringify(command)}\n\n`);
-    return res.json({ ok: true, message: "Relayed to desktop" });
-  } else {
-    return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+  if (!isAuthorizedDesktopRelayRequest(req)) {
+    return res.status(403).json({ error: "Unauthorized desktop relay request" });
   }
+
+  const result = relayDesktopCommand(slug, req.body || {});
+  if (!result.ok) {
+    return res.status(result.status).json({ error: result.error });
+  }
+
+  return res.json({ ok: true, message: result.message });
 });
 
 // ---------------- START SERVER ----------------
