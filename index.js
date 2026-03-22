@@ -228,8 +228,8 @@ app.get("/device/:slug/status", async (req, res) => {
       const tierNum = device.subscription === "true" ? (isNaN(device["subscription-tier"]) ? String(device["subscription-tier"]).toLowerCase() : Number(device["subscription-tier"])) : 0;
       
       // Check trial expiry
-      if (tierNum === "infinity" && device.trial_end) {
-        if (new Date() > new Date(device.trial_end)) {
+      if (tierNum === 1 && device.trialEnd) {
+        if (new Date() > new Date(device.trialEnd)) {
           console.log(`[Trial Expiry] Revoking expired trial for ${slug}`);
           db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, {
             subscription: "false",
@@ -300,41 +300,6 @@ app.get("/device/:slug/stt-log", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
   const logs = deviceSTTLogs.get(slug) || [];
   return res.json({ ok: true, logs });
-});
-
-// ---------------- DEVICE TRIALS ----------------
-app.post("/device/:slug/trial", async (req, res) => {
-  const slug = normalizeSlug(req.params.slug);
-  try {
-    const device = await getUserPlanBySlug(slug);
-    if (!device) return res.status(404).json({ error: "invalid_slug" });
-
-    if (device.trial_used) {
-        return res.status(400).json({ error: "trial_already_used", message: "Free trial was already used." });
-    }
-
-    const end_date = new Date();
-    end_date.setDate(end_date.getDate() + 7);
-
-    // Mark as having active subscription at Infinity Trial tier
-    await db.updateDocument(
-        process.env.APPWRITE_DB_ID,
-        process.env.APPWRITE_DEVICES_COLLECTION,
-        device.$id,
-        {
-            subscription: "true",
-            "subscription-tier": "infinity",
-            trial_used: true,
-            trial_end: end_date.toISOString()
-        }
-    );
-
-    console.log(`[Trial] Activated infinity trial for slug: ${slug} until ${end_date.toISOString()}`);
-    return res.json({ ok: true, message: "Trial activated" });
-  } catch (err) {
-    console.error("[Trial API] Error:", err);
-    return res.status(500).json({ error: "server_error" });
-  }
 });
 
 // ---------------- DESKTOP AUTH PROXY ----------------
