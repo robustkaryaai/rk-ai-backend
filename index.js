@@ -1821,6 +1821,15 @@ app.post("/waitlist", (req, res) => {
   return app._router.handle(req, res, () => {});
 });
 
+/** Fixed early-access caps (price lock). Trial = device activations; others = waitlist rows by productKey. */
+const PRICE_LOCK_CAPS = {
+  trial: 100,
+  student: 100,
+  creator: 50,
+  pro: 25,
+  studio: 5
+};
+
 app.get("/web/waitlist/stats", async (req, res) => {
   try {
     const list = await db.listDocuments(
@@ -1842,6 +1851,62 @@ app.get("/web/waitlist/stats", async (req, res) => {
   }
 });
 
+/** Remaining slots per tier for price-lock UI */
+app.get("/web/waitlist/slots", async (req, res) => {
+  try {
+    const caps = { ...PRICE_LOCK_CAPS };
+
+    const countWaitlistByKey = async (productKey) => {
+      try {
+        const r = await db.listDocuments(
+          process.env.APPWRITE_DB_ID,
+          "waitlist",
+          [Query.equal("productKey", productKey), Query.limit(1)]
+        );
+        return r.total;
+      } catch (e) {
+        console.warn("[waitlist/slots] count for", productKey, e.message);
+        return 0;
+      }
+    };
+
+    let trialUsedDevices = 0;
+    try {
+      const devList = await db.listDocuments(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION,
+        [Query.equal("trialUsed", "true"), Query.limit(1)]
+      );
+      trialUsedDevices = devList.total;
+    } catch (e) {
+      console.warn("[waitlist/slots] device trial count:", e.message);
+    }
+
+    const used = {
+      trial: trialUsedDevices,
+      student: await countWaitlistByKey("student"),
+      creator: await countWaitlistByKey("creator"),
+      pro: await countWaitlistByKey("pro"),
+      studio: await countWaitlistByKey("studio")
+    };
+
+    const remaining = {};
+    for (const k of Object.keys(caps)) {
+      remaining[k] = Math.max(0, caps[k] - (used[k] || 0));
+    }
+
+    return res.json({
+      caps,
+      used,
+      remaining,
+      totalSignups: Object.values(used).reduce((a, b) => a + b, 0)
+    });
+  } catch (err) {
+    console.error("WAITLIST SLOTS ERROR:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
 app.get("/waitlist/stats", (req, res) => {
   return app._router.handle(req, res, () => {});
 });
@@ -1851,6 +1916,28 @@ app.post("/device/:slug/trial", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
+
+    let trialDevicesTotal = 0;
+    try {
+      const tr = await db.listDocuments(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION,
+        [Query.equal("trialUsed", "true"), Query.limit(1)]
+      );
+      trialDevicesTotal = tr.total;
+    } catch (e) {
+      console.warn("[trial] count devices:", e.message);
+    }
+    if (
+      trialDevicesTotal >= PRICE_LOCK_CAPS.trial &&
+      device.trialUsed !== "true" &&
+      device.trialUsed !== true
+    ) {
+      return res.status(400).json({
+        error: "trial_slots_full",
+        message: "All trial price-lock slots are claimed. Join a paid tier waitlist."
+      });
+    }
 
     const now = new Date();
     const prevEnd = device.trialEnd ? new Date(device.trialEnd) : null;
