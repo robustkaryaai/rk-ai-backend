@@ -1666,18 +1666,38 @@ app.get("/web/auth/me", async (req, res) => {
 app.get("/web/profile/:userId", async (req, res) => {
   const { userId } = req.params;
   try {
-    const [waitlistReq, ordersReq, preordersReq, subscriptionsReq] = await Promise.all([
+    const [waitlistReq, ordersReq, preordersReq, subscriptionsReq, devicesTrialReq] = await Promise.all([
       db.listDocuments(process.env.APPWRITE_DB_ID, "waitlist", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(50)]).catch(() => ({ documents: [] })),
       db.listDocuments(process.env.APPWRITE_DB_ID, "order", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
       db.listDocuments(process.env.APPWRITE_DB_ID, "preorder", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
-      db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)]).catch(() => ({ documents: [] }))
+      db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)]).catch(() => ({ documents: [] })),
+      db
+        .listDocuments(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, [Query.limit(250)])
+        .catch(() => ({ documents: [] }))
     ]);
+
+    const trials = (devicesTrialReq.documents || [])
+      .map((d) => {
+        let sys = {};
+        try {
+          sys = JSON.parse(d.systemStatus || "{}");
+        } catch (e) {}
+        if (sys.trialLinkedUserId !== userId) return null;
+        return {
+          deviceSlug: d.slug,
+          trialEnd: d.trialEnd || null,
+          trialUsed: d.trialUsed,
+          linkedAt: sys.trialLinkedAt || null
+        };
+      })
+      .filter(Boolean);
 
     return res.json({
       waitlist: waitlistReq.documents,
       orders: ordersReq.documents,
       preorders: preordersReq.documents,
-      subscriptions: subscriptionsReq.documents
+      subscriptions: subscriptionsReq.documents,
+      trials
     });
   } catch (err) {
     console.error("PROFILE ERROR:", err);
@@ -1968,6 +1988,17 @@ app.post("/device/:slug/trial", async (req, res) => {
       sys.trialSecret = crypto.randomBytes(32).toString("hex");
     }
     sys.trialStartedAt = now.toISOString();
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const linkUserId =
+      typeof body.userId === "string" && body.userId.length > 0
+        ? body.userId
+        : typeof body.appwriteUserId === "string"
+          ? body.appwriteUserId
+          : null;
+    if (linkUserId) {
+      sys.trialLinkedUserId = linkUserId;
+      sys.trialLinkedAt = now.toISOString();
+    }
 
     const trialDays = 7;
     const newTrialEnd = new Date();
