@@ -14,6 +14,7 @@ import {
   getSmartHomeState,
   normalizeSmartHomeConfig,
   persistSmartHomeState,
+  mergeSmartDevices,
   syncTuyaDevicesForDevice,
   controlCloudSmartDevice,
 } from "./services/smartHomeService.js";
@@ -224,6 +225,217 @@ const normalizeSlug = (slug) => {
   const s = String(slug);
   return s.padStart(9, '0');
 };
+
+const xiaomiOAuthStates = new Map();
+const xiaomiAccessTokens = new Map();
+
+const XIAOMI_AUTH_URL = "https://account.xiaomi.com/oauth2/authorize";
+const XIAOMI_TOKEN_URL = "https://account.xiaomi.com/oauth2/token";
+const XIAOMI_REGION_ALIASES = {
+  all: "all",
+  cn: "cn",
+  china: "cn",
+  de: "de",
+  germany: "de",
+  i2: "i2",
+  in: "i2",
+  india: "i2",
+  ru: "ru",
+  russia: "ru",
+  sg: "sg",
+  singapore: "sg",
+  us: "us",
+  usa: "us",
+};
+
+function parseJsonSafe(value, fallback = {}) {
+  if (value == null) return fallback;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeXiaomiRegion(region) {
+  return XIAOMI_REGION_ALIASES[String(region || "all").trim().toLowerCase()] || "all";
+}
+
+function buildFrontendSmartHomeUrl(query = {}) {
+  const url = new URL("/smarthome", FRONTEND_URL);
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === "") continue;
+    url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
+function getXiaomiRedirectUri(req) {
+  if (process.env.XIAOMI_REDIRECT_URI) return process.env.XIAOMI_REDIRECT_URI;
+  const host = req.get("host") || "";
+  if (host.includes("localhost")) {
+    return `http://${host}/auth/xiaomi/callback`;
+  }
+  return "https://rk-ai-backend.onrender.com/auth/xiaomi/callback";
+}
+
+function getXiaomiOAuthConfig(req) {
+  return {
+    clientId: process.env.XIAOMI_CLIENT_ID || process.env.XIAOMI_OAUTH_CLIENT_ID || "",
+    clientSecret: process.env.XIAOMI_CLIENT_SECRET || process.env.XIAOMI_OAUTH_CLIENT_SECRET || "",
+    redirectUri: getXiaomiRedirectUri(req),
+    scope: process.env.XIAOMI_SCOPE || "1 6000 6004",
+  };
+}
+
+function stripXiaomiResponsePrefix(text) {
+  return String(text || "").replace(/^&&&START&&&/, "").trim();
+}
+
+function isValidMiioToken(token) {
+  return /^[a-f0-9]{32}$/i.test(String(token || "").trim());
+}
+
+function isXiaomiDevice(device) {
+  const provider = String(device?.provider || "").toLowerCase();
+  const type = String(device?.type || "").toLowerCase();
+  const brand = String(device?.brand || "").toLowerCase();
+  return provider === "xiaomi" || type === "miio" || type === "xiaomi" || type === "mihome" || brand === "xiaomi";
+}
+
+function buildXiaomiDeviceRecord(rawDevice = {}, source = "oauth", region = "all") {
+  const did = String(rawDevice.did || rawDevice.id || "").trim();
+  const ip = String(rawDevice.ip || rawDevice.localip || "").trim();
+  const token = String(rawDevice.token || rawDevice.local_token || "").trim().toLowerCase();
+  const model = String(rawDevice.model || rawDevice.miio_model || "").trim();
+
+  return {
+    id: `xiaomi_${did || ip || crypto.randomUUID().slice(0, 8)}`,
+    provider: "xiaomi",
+    provider_device_id: did || ip,
+    brand: "Xiaomi",
+    type: "miio",
+    control_via: "hub",
+    cloud: source !== "qr",
+    source,
+    name: String(rawDevice.name || rawDevice.title || "Xiaomi Device").trim(),
+    room: String(rawDevice.room || rawDevice.room_name || "").trim(),
+    did,
+    ip,
+    token,
+    miio_model: model,
+    region,
+  };
+}
+
+function getXiaomiAuthState(device) {
+  const systemStatus = parseJsonSafe(device?.systemStatus, {});
+  return systemStatus?.xiaomiOAuth && typeof systemStatus.xiaomiOAuth === "object"
+    ? systemStatus.xiaomiOAuth
+    : {};
+}
+
+async function persistXiaomiAuthState(device, patch = {}) {
+  const systemStatus = parseJsonSafe(device?.systemStatus, {});
+  const nextSystemStatus = {
+    ...systemStatus,
+    xiaomiOAuth: {
+      ...(systemStatus?.xiaomiOAuth || {}),
+      ...patch,
+    },
+  };
+
+  await db.updateDocument(
+    process.env.APPWRITE_DB_ID,
+    process.env.APPWRITE_DEVICES_COLLECTION,
+    device.$id,
+    { systemStatus: JSON.stringify(nextSystemStatus) },
+  );
+
+  return nextSystemStatus.xiaomiOAuth;
+}
+
+function mergeXiaomiDevicesIntoList(existingDevices = [], incomingXiaomiDevices = []) {
+  const preserved = (Array.isArray(existingDevices) ? existingDevices : []).filter((device) => !isXiaomiDevice(device));
+  return mergeSmartDevices(preserved, incomingXiaomiDevices);
+}
+
+async function persistMergedXiaomiDevices(device, incomingXiaomiDevices = [], authPatch = null) {
+  const { smartHomeConfig, smartDevices } = getSmartHomeState(device);
+  const mergedDevices = mergeXiaomiDevicesIntoList(smartDevices, incomingXiaomiDevices);
+  await persistSmartHomeState(device, {
+    smartHomeConfig,
+    smartDevices: mergedDevices,
+  });
+
+  if (authPatch && typeof authPatch === "object") {
+    await persistXiaomiAuthState(device, authPatch);
+  }
+
+  return mergedDevices;
+}
+
+async function exchangeXiaomiAuthorizationCode(req, code) {
+  const { clientId, clientSecret, redirectUri } = getXiaomiOAuthConfig(req);
+  if (!clientId || !clientSecret) {
+    throw new Error("Xiaomi OAuth client credentials are not configured on the backend.");
+  }
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    grant_type: "authorization_code",
+    code: String(code || ""),
+  });
+
+  const response = await fetch(`${XIAOMI_TOKEN_URL}?${params.toString()}`);
+  const responseText = await response.text();
+  const payload = parseJsonSafe(stripXiaomiResponsePrefix(responseText), {});
+
+  if (!response.ok || payload.error) {
+    throw new Error(payload.error_description || payload.error || `Xiaomi token exchange failed (${response.status})`);
+  }
+
+  return payload;
+}
+
+async function fetchOfficialXiaomiDevices(accessToken, region = "all") {
+  const endpoint = String(process.env.XIAOMI_MIHOME_DEVICES_URL || "").trim();
+  if (!endpoint) {
+    throw new Error("No official Xiaomi device endpoint is configured. Use QR fallback until partner API access is available.");
+  }
+
+  const url = new URL(endpoint);
+  if (region && region !== "all") {
+    url.searchParams.set("region", region);
+  }
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || payload.message || `Xiaomi device fetch failed (${response.status})`);
+  }
+
+  const rawDevices = Array.isArray(payload?.devices)
+    ? payload.devices
+    : Array.isArray(payload?.result)
+      ? payload.result
+      : Array.isArray(payload)
+        ? payload
+        : [];
+
+  return rawDevices
+    .map((rawDevice) => buildXiaomiDeviceRecord(rawDevice, "oauth", region))
+    .filter((device) => device.ip && isValidMiioToken(device.token));
+}
 
 app.get("/device/:slug/status", async (req, res) => {
   const rawSlug = req.params.slug;
@@ -884,6 +1096,214 @@ app.get("/auth/spotify/callback", async (req, res) => {
     const isNative = decodedStateErr.includes('|native');
     const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${FRONTEND_URL}/settings`;
     return res.redirect(`${baseRedirectUrl}?spotify_error=callback_failed`);
+  }
+});
+
+
+// ---------------- XIAOMI OAUTH + HYBRID DEVICE IMPORT ----------------
+app.get("/device/:slug/xiaomi/oauth/start", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const region = normalizeXiaomiRegion(req.query.region);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) {
+      return res.status(404).json({ error: "device_not_found" });
+    }
+
+    const { clientId, redirectUri, scope } = getXiaomiOAuthConfig(req);
+    if (!clientId) {
+      return res.status(500).json({ error: "xiaomi_oauth_not_configured" });
+    }
+
+    const state = crypto.randomUUID();
+    xiaomiOAuthStates.set(state, {
+      slug,
+      region,
+      createdAt: Date.now(),
+    });
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope,
+      state,
+    });
+
+    return res.redirect(`${XIAOMI_AUTH_URL}?${params.toString()}`);
+  } catch (err) {
+    console.error("[xiaomi/oauth/start] error:", err);
+    return res.redirect(buildFrontendSmartHomeUrl({ xiaomi_error: "oauth_start_failed" }));
+  }
+});
+
+app.get("/auth/xiaomi/callback", async (req, res) => {
+  const state = String(req.query.state || "");
+  const oauthState = xiaomiOAuthStates.get(state);
+  if (state) {
+    xiaomiOAuthStates.delete(state);
+  }
+
+  if (!oauthState?.slug) {
+    return res.redirect(buildFrontendSmartHomeUrl({ xiaomi_error: "invalid_state" }));
+  }
+
+  const slug = normalizeSlug(oauthState.slug);
+  const region = normalizeXiaomiRegion(oauthState.region);
+
+  try {
+    if (req.query.error) {
+      const errorCode = String(req.query.error || "oauth_failed");
+      return res.redirect(buildFrontendSmartHomeUrl({ xiaomi_error: errorCode }));
+    }
+
+    const code = String(req.query.code || "");
+    if (!code) {
+      return res.redirect(buildFrontendSmartHomeUrl({ xiaomi_error: "missing_code" }));
+    }
+
+    const device = await getUserPlanBySlug(slug);
+    if (!device) {
+      return res.redirect(buildFrontendSmartHomeUrl({ xiaomi_error: "device_not_found" }));
+    }
+
+    const tokenPayload = await exchangeXiaomiAuthorizationCode(req, code);
+    const accessToken = String(tokenPayload.access_token || "").trim();
+    const openId = String(tokenPayload.openId || tokenPayload.open_id || "").trim();
+    if (!accessToken) {
+      throw new Error("Xiaomi OAuth did not return an access token.");
+    }
+
+    xiaomiAccessTokens.set(slug, {
+      accessToken,
+      refreshToken: String(tokenPayload.refresh_token || "").trim(),
+      scope: String(tokenPayload.scope || "").trim(),
+      openId,
+      region,
+      expiresAt: Date.now() + (Number(tokenPayload.expires_in || 0) * 1000),
+    });
+
+    let mergedDevices = [];
+    let warning = "";
+    try {
+      const oauthDevices = await fetchOfficialXiaomiDevices(accessToken, region);
+      mergedDevices = await persistMergedXiaomiDevices(device, oauthDevices, {
+        linked: true,
+        region,
+        openId,
+        lastLinkedAt: new Date().toISOString(),
+        lastError: "",
+      });
+    } catch (deviceErr) {
+      warning = String(deviceErr.message || deviceErr);
+      const { smartDevices } = getSmartHomeState(device);
+      mergedDevices = smartDevices;
+      await persistXiaomiAuthState(device, {
+        linked: true,
+        region,
+        openId,
+        lastLinkedAt: new Date().toISOString(),
+        lastError: warning,
+      });
+    }
+
+    return res.redirect(buildFrontendSmartHomeUrl({
+      xiaomi_oauth: warning ? "linked" : "success",
+      xiaomi_warning: warning || "",
+      xiaomi_devices: Array.isArray(mergedDevices) ? mergedDevices.filter(isXiaomiDevice).length : 0,
+    }));
+  } catch (err) {
+    console.error("[xiaomi/oauth/callback] error:", err);
+    return res.redirect(buildFrontendSmartHomeUrl({
+      xiaomi_error: String(err.message || err),
+    }));
+  }
+});
+
+app.post("/device/:slug/xiaomi/access-token/import", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const { accessToken, region = "all", openId = "" } = req.body || {};
+    if (!accessToken) {
+      return res.status(400).json({ error: "missing_access_token" });
+    }
+
+    const device = await getUserPlanBySlug(slug);
+    if (!device) {
+      return res.status(404).json({ error: "device_not_found" });
+    }
+
+    const normalizedRegion = normalizeXiaomiRegion(region);
+    const oauthDevices = await fetchOfficialXiaomiDevices(String(accessToken).trim(), normalizedRegion);
+    xiaomiAccessTokens.set(slug, {
+      accessToken: String(accessToken).trim(),
+      openId: String(openId || "").trim(),
+      region: normalizedRegion,
+      expiresAt: null,
+    });
+
+    const devices = await persistMergedXiaomiDevices(device, oauthDevices, {
+      linked: true,
+      region: normalizedRegion,
+      openId: String(openId || "").trim(),
+      lastLinkedAt: new Date().toISOString(),
+      lastError: "",
+    });
+
+    return res.json({ ok: true, devices });
+  } catch (err) {
+    console.error("[xiaomi/access-token/import] error:", err);
+    return res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+app.post("/device/:slug/xiaomi/qr/import", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) {
+      return res.status(404).json({ error: "device_not_found" });
+    }
+
+    const rawDevices = Array.isArray(req.body?.devices) ? req.body.devices : [];
+    const qrDevices = rawDevices
+      .map((rawDevice) => buildXiaomiDeviceRecord(rawDevice, "qr", "all"))
+      .filter((entry) => entry.ip && isValidMiioToken(entry.token));
+
+    const devices = await persistMergedXiaomiDevices(device, qrDevices, {
+      lastQrImportAt: new Date().toISOString(),
+      lastError: "",
+    });
+
+    return res.json({
+      ok: true,
+      imported: qrDevices.length,
+      devices,
+    });
+  } catch (err) {
+    console.error("[xiaomi/qr/import] error:", err);
+    return res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+app.get("/device/:slug/xiaomi/state", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) {
+      return res.status(404).json({ error: "device_not_found" });
+    }
+
+    const { smartDevices } = getSmartHomeState(device);
+    return res.json({
+      ok: true,
+      oauth: getXiaomiAuthState(device),
+      devices: smartDevices.filter(isXiaomiDevice),
+      accessTokenCached: xiaomiAccessTokens.has(slug),
+    });
+  } catch (err) {
+    console.error("[xiaomi/state] error:", err);
+    return res.status(500).json({ error: String(err.message || err) });
   }
 });
 
