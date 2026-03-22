@@ -197,6 +197,7 @@ Now only output JSON following the schema and rules.`;
 const deviceLastSeen = new Map();
 const deviceBusyState = new Map(); // 🚀 Track explicit processing state (now stores strings like "thinking", "playing", "speaking")
 const deviceDownloadProgress = new Map(); // 🚀 TRACK MUSIC DOWNLOADS
+const deviceSTTLogs = new Map(); // 🚀 TRACK STT LOGS FOR FRONEND APP (slug -> [{timestamp, text}])
 
 // Helper to normalize slug to 9-digit string
 app.get("/ai/models", async (req, res) => {
@@ -262,6 +263,56 @@ app.post("/device/:slug/state", (req, res) => {
   
   console.log(`[Device-State] ${slug} -> ${state.toUpperCase()}`);
   return res.json({ ok: true });
+});
+
+// ---------------- STT LOG STREAM ----------------
+app.post("/device/:slug/stt-log", (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: "text required" });
+  
+  if (!deviceSTTLogs.has(slug)) deviceSTTLogs.set(slug, []);
+  
+  const logs = deviceSTTLogs.get(slug);
+  logs.push({ timestamp: new Date().toISOString(), text });
+  
+  // Keep only last 50 logs in memory to avoid leaking
+  if (logs.length > 50) logs.shift();
+  
+  deviceLastSeen.set(slug, Date.now()); // Acts as heartbeat
+  return res.json({ ok: true });
+});
+
+app.get("/device/:slug/stt-log", (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  const logs = deviceSTTLogs.get(slug) || [];
+  return res.json({ ok: true, logs });
+});
+
+// ---------------- DEVICE TRIALS ----------------
+app.post("/device/:slug/trial", async (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  try {
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "invalid_slug" });
+
+    // Mark as having active subscription at Student tier (1) for the trial
+    await db.updateDocument(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION,
+        device.$id,
+        {
+            subscription: "true",
+            "subscription-tier": 1
+        }
+    );
+
+    console.log(`[Trial] Activated student trial for slug: ${slug}`);
+    return res.json({ ok: true, message: "Trial activated" });
+  } catch (err) {
+    console.error("[Trial API] Error:", err);
+    return res.status(500).json({ error: "server_error" });
+  }
 });
 
 // ---------------- DESKTOP AUTH PROXY ----------------
@@ -816,27 +867,6 @@ app.get("/auth/spotify/callback", async (req, res) => {
   }
 });
 
-// ---------------- STT LOG STREAMING ----------------
-const deviceSTTLogs = new Map();
-
-app.post("/device/:slug/stt-log", async (req, res) => {
-  const slug = normalizeSlug(req.params.slug);
-  const { text, timestamp } = req.body;
-  if (!text) return res.json({ ok: false });
-  
-  if (!deviceSTTLogs.has(slug)) deviceSTTLogs.set(slug, []);
-  const logs = deviceSTTLogs.get(slug);
-  logs.unshift({ text, timestamp: timestamp || new Date().toISOString() });
-  if (logs.length > 50) logs.pop();
-  
-  return res.json({ ok: true });
-});
-
-app.get("/device/:slug/stt-log", (req, res) => {
-  const slug = normalizeSlug(req.params.slug);
-  const logs = deviceSTTLogs.get(slug) || [];
-  return res.json({ logs });
-});
 
 // ---------------- DEVICE SETTINGS ----------------
 app.post("/device/:slug/settings", async (req, res) => {
