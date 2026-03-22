@@ -226,7 +226,7 @@ app.get("/device/:slug/status", async (req, res) => {
     const device = await getUserPlanBySlug(slug);
     if (device) {
       const tierNum = device.subscription === "true" ? Number(device["subscription-tier"] || 0) : 0;
-      const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio" };
+      const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio", 5: "infinity" };
       const tierName = tierMap[tierNum] || "free";
       storageMB = await cleanupSupabaseFiles(slug, tierName);
     }
@@ -296,18 +296,18 @@ app.post("/device/:slug/trial", async (req, res) => {
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "invalid_slug" });
 
-    // Mark as having active subscription at Student tier (1) for the trial
+    // Mark as having active subscription at Infinity Trial tier (5)
     await db.updateDocument(
         process.env.APPWRITE_DB_ID,
         process.env.APPWRITE_DEVICES_COLLECTION,
         device.$id,
         {
             subscription: "true",
-            "subscription-tier": 1
+            "subscription-tier": 5
         }
     );
 
-    console.log(`[Trial] Activated student trial for slug: ${slug}`);
+    console.log(`[Trial] Activated infinity trial for slug: ${slug}`);
     return res.json({ ok: true, message: "Trial activated" });
   } catch (err) {
     console.error("[Trial API] Error:", err);
