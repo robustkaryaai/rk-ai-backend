@@ -225,9 +225,20 @@ app.get("/device/:slug/status", async (req, res) => {
   try {
     const device = await getUserPlanBySlug(slug);
     if (device) {
-      // Handle purely string-based "infinity" correctly before Number() conversion
-      const rawTier = device["subscription-tier"] || 0;
-      const tierNum = device.subscription === "true" ? (isNaN(rawTier) ? String(rawTier).toLowerCase() : Number(rawTier)) : 0;
+      const tierNum = device.subscription === "true" ? (isNaN(device["subscription-tier"]) ? String(device["subscription-tier"]).toLowerCase() : Number(device["subscription-tier"])) : 0;
+      
+      // Check trial expiry
+      if (tierNum === "infinity" && device.trial_end) {
+        if (new Date() > new Date(device.trial_end)) {
+          console.log(`[Trial Expiry] Revoking expired trial for ${slug}`);
+          db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, {
+            subscription: "false",
+            "subscription-tier": 0
+          }).catch(console.error);
+          return res.json({ slug, status: isOnline ? "online" : "offline", isBusy: busyState !== "idle", storageMB: 0, shoom: true });
+        }
+      }
+
       const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio", "infinity": "infinity", "Infinity": "infinity" };
       const tierName = tierMap[tierNum] || "free";
       storageMB = await cleanupSupabaseFiles(slug, tierName);
@@ -298,18 +309,27 @@ app.post("/device/:slug/trial", async (req, res) => {
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "invalid_slug" });
 
-    // Mark as having active subscription at Infinity Trial tier (5)
+    if (device.trial_used) {
+        return res.status(400).json({ error: "trial_already_used", message: "Free trial was already used." });
+    }
+
+    const end_date = new Date();
+    end_date.setDate(end_date.getDate() + 7);
+
+    // Mark as having active subscription at Infinity Trial tier
     await db.updateDocument(
         process.env.APPWRITE_DB_ID,
         process.env.APPWRITE_DEVICES_COLLECTION,
         device.$id,
         {
             subscription: "true",
-            "subscription-tier": "infinity"
+            "subscription-tier": "infinity",
+            trial_used: true,
+            trial_end: end_date.toISOString()
         }
     );
 
-    console.log(`[Trial] Activated infinity trial for slug: ${slug}`);
+    console.log(`[Trial] Activated infinity trial for slug: ${slug} until ${end_date.toISOString()}`);
     return res.json({ ok: true, message: "Trial activated" });
   } catch (err) {
     console.error("[Trial API] Error:", err);
