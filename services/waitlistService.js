@@ -23,10 +23,42 @@ function normalizeWaitlistEntry(doc) {
     product: doc.product || "",
     productKey: doc.productKey || "",
     userId: doc.userId || "",
-    source: doc.source || "",
     createdAt: doc.createdAt || doc.$createdAt || "",
     updatedAt: doc.$updatedAt || "",
   };
+}
+
+export async function listWaitlistEntries({ userId = "", email = "", productKey = "" } = {}) {
+  const normalizedProductKey = cleanText(productKey, "rexycore");
+  const normalizedUserId = cleanText(userId, "");
+  const normalizedEmail = cleanText(email, "");
+  const queries = [Query.equal("productKey", normalizedProductKey), Query.orderDesc("$createdAt"), Query.limit(50)];
+  const results = [];
+  const seen = new Set();
+
+  async function addMatches(extraQuery) {
+    const response = await db.listDocuments(
+      process.env.APPWRITE_DB_ID,
+      WAITLIST_COLLECTION_ID,
+      [...extraQuery, ...queries],
+    ).catch(() => ({ documents: [] }));
+
+    for (const doc of response.documents || []) {
+      if (!doc?.$id || seen.has(doc.$id)) continue;
+      seen.add(doc.$id);
+      results.push(doc);
+    }
+  }
+
+  if (normalizedUserId && normalizedUserId !== "anonymous") {
+    await addMatches([Query.equal("userId", normalizedUserId)]);
+  }
+
+  if (normalizedEmail) {
+    await addMatches([Query.equal("email", normalizedEmail)]);
+  }
+
+  return results;
 }
 
 export async function findWaitlistEntry({ userId = "", email = "", productKey = "" } = {}) {
@@ -76,7 +108,6 @@ export async function upsertWaitlistEntry(payload = {}) {
   const userId = cleanText(payload.userId, "anonymous");
   const paymentIntent = cleanText(payload.paymentIntent, "Maybe");
   const notes = normalizeDevicesWanted(payload.notes || payload.featureDemand);
-  const source = cleanText(payload.source, "web");
 
   if (!email) {
     throw new Error("Email required");
@@ -93,7 +124,6 @@ export async function upsertWaitlistEntry(payload = {}) {
     userId,
     paymentIntent,
     notes,
-    source,
     createdAt: existing?.createdAt || new Date().toISOString(),
   };
 

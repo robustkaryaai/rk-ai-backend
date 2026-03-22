@@ -18,7 +18,7 @@ import {
   syncTuyaDevicesForDevice,
   controlCloudSmartDevice,
 } from "./services/smartHomeService.js";
-import { getWaitlistStatus, upsertWaitlistEntry } from "./services/waitlistService.js";
+import { getWaitlistStatus, listWaitlistEntries, upsertWaitlistEntry } from "./services/waitlistService.js";
 import { isAuthorizedDesktopRelayRequest, openDesktopRelayConnection, relayDesktopCommand } from "./services/desktopRelayService.js";
 import { HfInference } from "@huggingface/inference";
 
@@ -1802,9 +1802,10 @@ app.get("/web/auth/me", async (req, res) => {
 
 app.get("/web/profile/:userId", async (req, res) => {
   const { userId } = req.params;
+  const email = String(req.query.email || "").trim();
   try {
-    const [waitlistReq, ordersReq, preordersReq, subscriptionsReq, devicesTrialReq] = await Promise.all([
-      db.listDocuments(process.env.APPWRITE_DB_ID, "waitlist", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(50)]).catch(() => ({ documents: [] })),
+    const [waitlistRows, ordersReq, preordersReq, subscriptionsReq, devicesTrialReq] = await Promise.all([
+      listWaitlistEntries({ userId, email }).catch(() => []),
       db.listDocuments(process.env.APPWRITE_DB_ID, "order", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
       db.listDocuments(process.env.APPWRITE_DB_ID, "preorder", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
       db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)]).catch(() => ({ documents: [] })),
@@ -1830,7 +1831,7 @@ app.get("/web/profile/:userId", async (req, res) => {
       .filter(Boolean);
 
     return res.json({
-      waitlist: waitlistReq.documents,
+      waitlist: waitlistRows,
       orders: ordersReq.documents,
       preorders: preordersReq.documents,
       subscriptions: subscriptionsReq.documents,
