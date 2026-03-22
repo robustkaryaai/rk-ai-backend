@@ -10,6 +10,13 @@ import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
 import { callGemini, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
 import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./services/supabaseClient.js";
+import {
+  getSmartHomeState,
+  normalizeSmartHomeConfig,
+  persistSmartHomeState,
+  syncTuyaDevicesForDevice,
+  controlCloudSmartDevice,
+} from "./services/smartHomeService.js";
 import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
@@ -904,6 +911,11 @@ app.post("/device/:slug/settings", async (req, res) => {
       delete updateData.nightProtocolEnabled; // Remove so Appwrite doesn't throw Attribute Error
       configUpdated = true;
     }
+    if (settings.smartHomeConfig !== undefined) {
+      currentConfig.smartHomeConfig = normalizeSmartHomeConfig(settings.smartHomeConfig || {});
+      delete updateData.smartHomeConfig;
+      configUpdated = true;
+    }
     if (configUpdated) {
       updateData.systemStatus = JSON.stringify(currentConfig);
     }
@@ -946,11 +958,118 @@ app.post("/device/:slug/settings", async (req, res) => {
     return res.json({ 
       success: true, 
       wakeWords: updateData.wakeWords ? JSON.parse(updateData.wakeWords) : null,
-      systemStatus: currentConfig
+      systemStatus: currentConfig,
+      smartHomeConfig: currentConfig.smartHomeConfig || null,
     });
   } catch (err) {
     console.error(`[Settings] Error updating settings:`, err);
     res.status(500).json({ error: String(err) });
+  }
+});
+
+app.get("/device/:slug/smart-home/state", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    const { smartHomeConfig, smartDevices } = getSmartHomeState(device);
+    return res.json({
+      ok: true,
+      smartHomeConfig,
+      smart_devices: smartDevices,
+    });
+  } catch (err) {
+    console.error("[smart-home/state] error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/device/:slug/smart-home/providers/:provider/config", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const provider = String(req.params.provider || "").toLowerCase();
+    const device = await getUserPlanBySlug(slug);
+    const { smartHomeConfig } = getSmartHomeState(device);
+    const nextConfig = normalizeSmartHomeConfig({
+      ...smartHomeConfig,
+      providers: {
+        ...smartHomeConfig.providers,
+        [provider]: {
+          ...(smartHomeConfig.providers?.[provider] || {}),
+          ...(req.body || {}),
+        },
+      },
+    });
+
+    await persistSmartHomeState(device, { smartHomeConfig: nextConfig });
+
+    return res.json({
+      ok: true,
+      provider,
+      config: nextConfig.providers?.[provider] || null,
+    });
+  } catch (err) {
+    console.error("[smart-home/provider-config] error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/device/:slug/smart-home/providers/:provider/sync", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const provider = String(req.params.provider || "").toLowerCase();
+    const device = await getUserPlanBySlug(slug);
+
+    if (provider !== "tuya") {
+      return res.status(400).json({ error: `Unsupported provider: ${provider}` });
+    }
+
+    const result = await syncTuyaDevicesForDevice(device);
+    return res.json({
+      ok: true,
+      ...result,
+    });
+  } catch (err) {
+    console.error("[smart-home/provider-sync] error:", err);
+
+    try {
+      const slug = normalizeSlug(req.params.slug);
+      const device = await getUserPlanBySlug(slug);
+      const { smartHomeConfig } = getSmartHomeState(device);
+      const provider = String(req.params.provider || "").toLowerCase();
+      const nextConfig = normalizeSmartHomeConfig({
+        ...smartHomeConfig,
+        providers: {
+          ...smartHomeConfig.providers,
+          [provider]: {
+            ...(smartHomeConfig.providers?.[provider] || {}),
+            lastError: String(err.message || err),
+          },
+        },
+      });
+      await persistSmartHomeState(device, { smartHomeConfig: nextConfig });
+    } catch {}
+
+    return res.status(500).json({ error: String(err.message || err) });
+  }
+});
+
+app.post("/device/:slug/smart-home/control", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const { id, action = "toggle", payload = {} } = req.body || {};
+    if (!id) {
+      return res.status(400).json({ error: "Missing smart device id." });
+    }
+
+    const device = await getUserPlanBySlug(slug);
+    const result = await controlCloudSmartDevice(device, id, String(action).toLowerCase(), payload);
+    return res.json({
+      ok: true,
+      ...result,
+    });
+  } catch (err) {
+    console.error("[smart-home/control] error:", err);
+    return res.status(500).json({ error: String(err.message || err) });
   }
 });
 
