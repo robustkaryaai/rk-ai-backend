@@ -916,6 +916,16 @@ app.post("/device/:slug/settings", async (req, res) => {
       delete updateData.smartHomeConfig;
       configUpdated = true;
     }
+    if (settings.ttsConfig !== undefined) {
+      currentConfig.ttsConfig = settings.ttsConfig || {};
+      delete updateData.ttsConfig;
+      configUpdated = true;
+    }
+    if (settings.xiaomiCloud !== undefined) {
+      currentConfig.xiaomiCloud = settings.xiaomiCloud || {};
+      delete updateData.xiaomiCloud;
+      configUpdated = true;
+    }
     if (configUpdated) {
       updateData.systemStatus = JSON.stringify(currentConfig);
     }
