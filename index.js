@@ -1346,6 +1346,11 @@ app.post("/device/:slug/settings", async (req, res) => {
       delete updateData.xiaomiCloud;
       configUpdated = true;
     }
+    if (settings.xiaomiOAuth !== undefined) {
+      currentConfig.xiaomiOAuth = settings.xiaomiOAuth || {};
+      delete updateData.xiaomiOAuth;
+      configUpdated = true;
+    }
     if (configUpdated) {
       updateData.systemStatus = JSON.stringify(currentConfig);
     }
