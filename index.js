@@ -225,8 +225,10 @@ app.get("/device/:slug/status", async (req, res) => {
   try {
     const device = await getUserPlanBySlug(slug);
     if (device) {
-      const tierNum = device.subscription === "true" ? Number(device["subscription-tier"] || 0) : 0;
-      const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio", 5: "infinity" };
+      // Handle purely string-based "infinity" correctly before Number() conversion
+      const rawTier = device["subscription-tier"] || 0;
+      const tierNum = device.subscription === "true" ? (isNaN(rawTier) ? String(rawTier).toLowerCase() : Number(rawTier)) : 0;
+      const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio", "infinity": "infinity", "Infinity": "infinity" };
       const tierName = tierMap[tierNum] || "free";
       storageMB = await cleanupSupabaseFiles(slug, tierName);
     }
@@ -303,7 +305,7 @@ app.post("/device/:slug/trial", async (req, res) => {
         device.$id,
         {
             subscription: "true",
-            "subscription-tier": 5
+            "subscription-tier": "infinity"
         }
     );
 

@@ -15,7 +15,8 @@ const TIER_LIMITS = {
   2: { image: 100, video: 10, ppt: 999999, ppt_slides: 999999 },
   3: { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 },
   4: { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 },
-  5: { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 }
+  'infinity': { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 },
+  'Infinity': { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 }
 };
 
 function todayKey() {
