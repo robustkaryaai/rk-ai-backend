@@ -213,6 +213,7 @@ Now only output JSON following the schema and rules.`;
 // ---------------- DEVICE PRESENCE TRACKING ----------------
 const deviceLastSeen = new Map();
 const deviceBusyState = new Map(); // 🚀 Track explicit processing state (now stores strings like "thinking", "playing", "speaking")
+const deviceNightModeState = new Map(); // Track live night protocol runtime state separately from settings
 const deviceDownloadProgress = new Map(); // 🚀 TRACK MUSIC DOWNLOADS
 const deviceSTTLogs = new Map(); // 🚀 TRACK STT LOGS FOR FRONEND APP (slug -> [{timestamp, text}])
 
@@ -243,6 +244,7 @@ app.get("/device/:slug/status", async (req, res) => {
   const slug = normalizeSlug(rawSlug);
   const lastSeen = deviceLastSeen.get(slug);
   const busyState = deviceBusyState.get(slug) || "idle";
+  const nightModeActive = deviceNightModeState.get(slug) || false;
   const downloadProgress = deviceDownloadProgress.get(slug) || null;
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
@@ -262,7 +264,7 @@ app.get("/device/:slug/status", async (req, res) => {
             subscription: "false",
             "subscription-tier": 0
           }).catch(console.error);
-          return res.json({ slug, status: isOnline ? "online" : "offline", isBusy: busyState !== "idle", storageMB: 0, shoom: true });
+          return res.json({ slug, status: isOnline ? "online" : "offline", isBusy: busyState !== "idle", nightModeActive, storageMB: 0, shoom: true });
         }
       }
 
@@ -281,6 +283,7 @@ app.get("/device/:slug/status", async (req, res) => {
     diffSeconds: lastSeen ? Math.floor((now - lastSeen) / 1000) : null,
     busyState,
     isBusy: busyState !== "idle",
+    nightModeActive,
     downloadProgress, // 🚀 Include download info
     storageMB: storageMB || 0,
     shoom: true
@@ -302,6 +305,19 @@ app.post("/device/:slug/state", (req, res) => {
   deviceLastSeen.set(slug, Date.now()); // State update also acts as heartbeat
   
   console.log(`[Device-State] ${slug} -> ${state.toUpperCase()}`);
+  return res.json({ ok: true });
+});
+
+app.post("/device/:slug/night-mode", (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  const { active } = req.body;
+  if (typeof active !== "boolean") {
+    return res.status(400).json({ error: "active boolean required" });
+  }
+
+  deviceNightModeState.set(slug, active);
+  deviceLastSeen.set(slug, Date.now());
+  console.log(`[Night-Mode] ${slug} -> ${active ? "ACTIVE" : "INACTIVE"}`);
   return res.json({ ok: true });
 });
 
