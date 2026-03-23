@@ -23,6 +23,11 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 // ---------------- CONFIG ----------------
 const BUCKET = process.env.SUPABASE_BUCKET || "user-files";
 const MEMORY_ROOT = "memory";
+const SUPABASE_ONLY_FILENAMES = new Set(["limit.txt"]);
+
+function isSupabaseOnlyFile(filename = "") {
+  return SUPABASE_ONLY_FILENAMES.has(String(filename).toLowerCase());
+}
 
 // ---------------- ENCRYPTION HELPER ----------------
 function encryptBuffer(buffer, secretKey) {
@@ -60,6 +65,7 @@ export async function saveFileToSlug(
 ) {
   try {
     const safeSlug = String(slug);
+    const forceSupabaseStorage = forceSupabase || isSupabaseOnlyFile(filename);
     const localFolder = path.join(MEMORY_ROOT, safeSlug);
 
     ensureFolder(localFolder);
@@ -74,7 +80,7 @@ export async function saveFileToSlug(
 
     // If user prefers Google Drive and has a valid token + tier, upload there instead
     try {
-      if (!forceSupabase) {
+      if (!forceSupabaseStorage) {
         const user = await getUserPlanBySlug(safeSlug);
         const storageUsing = String(user.storageUsing || "").toLowerCase();
 
@@ -259,7 +265,7 @@ export async function saveFileToSlug(
           // fallthrough to supabase upload
         }
       }
-      } // end if (!forceSupabase)
+      } // end if (!forceSupabaseStorage)
     } catch (err) {
       logError("[Google Drive Check] Failed to query user preferences:", err.message || err);
     }
@@ -306,7 +312,7 @@ export async function downloadFileFromSlug(slug, filename) {
     logInfo(`[Download] Checking storage for ${filename}: storageUsing=${storageUsing}`);
 
     // 🔥 TRY GOOGLE DRIVE FIRST if user has it connected
-    if (storageUsing === "google" && user.googleAccessToken) {
+    if (!isSupabaseOnlyFile(filename) && storageUsing === "google" && user.googleAccessToken) {
       try {
         logInfo(`[Google Drive Download] Searching for ${filename}...`);
         let token = user.googleAccessToken;
@@ -669,7 +675,7 @@ export async function listFilesFromSlug(slug) {
 
           if (searchRes.ok) {
             const searchResult = await searchRes.json();
-            return (searchResult.files || []).map(file => {
+            const googleFiles = (searchResult.files || []).map(file => {
               // Strip .enc from name for frontend display
               const isEnc = file.name.endsWith(".enc");
               const baseName = isEnc ? file.name.slice(0, -4) : file.name;
@@ -692,6 +698,23 @@ export async function listFilesFromSlug(slug) {
                 source: 'google'
               };
             });
+
+            const { data: supabaseFiles } = await supabase.storage
+              .from(BUCKET)
+              .list(safeSlug, { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
+
+            const supabaseOnlyFiles = (supabaseFiles || [])
+              .filter(file => isSupabaseOnlyFile(file.name))
+              .map(file => ({
+                id: file.id || file.name,
+                name: file.name,
+                size: file.metadata?.size || 0,
+                mimeType: file.metadata?.mimetype || 'application/octet-stream',
+                createdAt: file.created_at,
+                source: 'supabase'
+              }));
+
+            return [...supabaseOnlyFiles, ...googleFiles];
           }
         }
       } catch (err) {
@@ -728,7 +751,7 @@ export async function deleteFileFromSlug(slug, filename) {
     const storageUsing = String(user.storageUsing || "").toLowerCase();
 
     // 1. TRY GOOGLE DRIVE FIRST
-    if (storageUsing === "google" && user.googleAccessToken) {
+    if (!isSupabaseOnlyFile(filename) && storageUsing === "google" && user.googleAccessToken) {
       try {
         let token = user.googleAccessToken;
         const validateRes = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${token}`);

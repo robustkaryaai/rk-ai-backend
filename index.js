@@ -246,6 +246,42 @@ function parseJsonSafe(value, fallback = {}) {
   }
 }
 
+function sanitizeSttLogs(logs) {
+  if (!Array.isArray(logs)) return [];
+  return logs
+    .filter((item) => item && typeof item.text === "string" && item.text.trim())
+    .map((item) => ({
+      timestamp: item.timestamp || new Date().toISOString(),
+      text: String(item.text).trim(),
+    }))
+    .slice(-50);
+}
+
+async function readPersistedSttLogs(slug) {
+  try {
+    const device = await getUserPlanBySlug(slug);
+    const systemStatus = parseJsonSafe(device.systemStatus, {});
+    return sanitizeSttLogs(systemStatus.sttLogs || []);
+  } catch (err) {
+    console.warn(`[STT-Logs] Failed to read persisted logs for ${slug}:`, err.message || err);
+    return [];
+  }
+}
+
+async function writePersistedSttLogs(slug, logs) {
+  const nextLogs = sanitizeSttLogs(logs);
+  const device = await getUserPlanBySlug(slug);
+  const systemStatus = parseJsonSafe(device.systemStatus, {});
+  systemStatus.sttLogs = nextLogs;
+  await db.updateDocument(
+    process.env.APPWRITE_DB_ID,
+    process.env.APPWRITE_DEVICES_COLLECTION,
+    device.$id,
+    { systemStatus: JSON.stringify(systemStatus) }
+  );
+  return nextLogs;
+}
+
 app.get("/device/:slug/status", async (req, res) => {
   const rawSlug = req.params.slug;
   const slug = normalizeSlug(rawSlug);
@@ -348,27 +384,51 @@ app.post("/device/:slug/night-mode", (req, res) => {
 });
 
 // ---------------- STT LOG STREAM ----------------
-app.post("/device/:slug/stt-log", (req, res) => {
-  const slug = normalizeSlug(req.params.slug);
-  const { text } = req.body;
-  if (!text) return res.status(400).json({ error: "text required" });
-  
-  if (!deviceSTTLogs.has(slug)) deviceSTTLogs.set(slug, []);
-  
-  const logs = deviceSTTLogs.get(slug);
-  logs.push({ timestamp: new Date().toISOString(), text });
-  
-  // Keep only last 50 logs in memory to avoid leaking
-  if (logs.length > 50) logs.shift();
-  
-  deviceLastSeen.set(slug, Date.now()); // Acts as heartbeat
-  return res.json({ ok: true });
+app.post("/device/:slug/stt-log", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const text = String(req.body?.text || "").trim();
+    if (!text) return res.status(400).json({ error: "text required" });
+
+    const inMemoryLogs = deviceSTTLogs.get(slug) || [];
+    const nextLogs = sanitizeSttLogs([
+      ...inMemoryLogs,
+      { timestamp: new Date().toISOString(), text },
+    ]);
+
+    deviceSTTLogs.set(slug, nextLogs);
+    deviceLastSeen.set(slug, Date.now());
+
+    try {
+      await writePersistedSttLogs(slug, nextLogs);
+    } catch (err) {
+      console.error(`[STT-Logs] Persist failed for ${slug}:`, err.message || err);
+    }
+
+    return res.json({ ok: true, logs: nextLogs });
+  } catch (err) {
+    console.error("[STT-Logs] POST failed:", err);
+    return res.status(500).json({ error: String(err) });
+  }
 });
 
-app.get("/device/:slug/stt-log", (req, res) => {
-  const slug = normalizeSlug(req.params.slug);
-  const logs = deviceSTTLogs.get(slug) || [];
-  return res.json({ ok: true, logs });
+app.get("/device/:slug/stt-log", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    let logs = sanitizeSttLogs(deviceSTTLogs.get(slug) || []);
+
+    if (!logs.length) {
+      logs = await readPersistedSttLogs(slug);
+      if (logs.length) {
+        deviceSTTLogs.set(slug, logs);
+      }
+    }
+
+    return res.json({ ok: true, logs });
+  } catch (err) {
+    console.error("[STT-Logs] GET failed:", err);
+    return res.status(500).json({ error: String(err) });
+  }
 });
 
 // ---------------- DESKTOP AUTH PROXY ----------------
