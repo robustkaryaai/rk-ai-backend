@@ -69,6 +69,39 @@ function safeJsonParse(value, fallback) {
   }
 }
 
+function normalizeWakeWordList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function parseWakeWordsBlob(raw) {
+  const parsed = safeJsonParse(raw, null);
+  if (Array.isArray(parsed)) {
+    return { words: normalizeWakeWordList(parsed), meta: {} };
+  }
+  if (parsed && typeof parsed === "object") {
+    const words = parsed.words ?? parsed.wakeWords ?? parsed.list ?? parsed.items ?? [];
+    return {
+      words: normalizeWakeWordList(words),
+      meta: parsed.meta && typeof parsed.meta === "object" ? parsed.meta : {},
+    };
+  }
+  return { words: [], meta: {} };
+}
+
+function mergeWakeWordsBlob(raw, patch = {}) {
+  const current = parseWakeWordsBlob(raw);
+  return {
+    words: Array.isArray(patch.words) ? normalizeWakeWordList(patch.words) : current.words,
+    meta: {
+      ...current.meta,
+      ...(patch.meta && typeof patch.meta === "object" ? patch.meta : {}),
+    },
+  };
+}
+
 function cloneDefaultConfig() {
   return JSON.parse(JSON.stringify(DEFAULT_SMART_HOME_CONFIG));
 }
@@ -101,33 +134,35 @@ export function normalizeSmartHomeConfig(rawConfig = {}) {
   };
 }
 
-function parseSmartDevices(device, systemStatus) {
+function parseSmartDevices(device, wakeWordsBlob) {
   const topLevel = safeJsonParse(device?.smart_devices, null);
   if (Array.isArray(topLevel)) return topLevel;
-  const legacy = safeJsonParse(systemStatus?.smart_devices, []);
+  const legacy = safeJsonParse(wakeWordsBlob?.meta?.smart_devices, []);
   return Array.isArray(legacy) ? legacy : [];
 }
 
 export function getSmartHomeState(device) {
-  const systemStatus = safeJsonParse(device?.systemStatus, {});
-  const smartHomeConfig = normalizeSmartHomeConfig(systemStatus.smartHomeConfig || {});
-  const smartDevices = parseSmartDevices(device, systemStatus);
+  const wakeWordsBlob = parseWakeWordsBlob(device?.wakeWords);
+  const smartHomeConfig = normalizeSmartHomeConfig(wakeWordsBlob.meta.smartHomeConfig || {});
+  const smartDevices = parseSmartDevices(device, wakeWordsBlob);
   return {
-    systemStatus,
+    wakeWordsBlob,
     smartHomeConfig,
     smartDevices,
   };
 }
 
 export async function persistSmartHomeState(device, { smartHomeConfig, smartDevices }) {
-  const { systemStatus } = getSmartHomeState(device);
-  const nextSystemStatus = {
-    ...systemStatus,
-    smartHomeConfig: normalizeSmartHomeConfig(smartHomeConfig || systemStatus.smartHomeConfig || {}),
-  };
+  const { wakeWordsBlob } = getSmartHomeState(device);
+  const nextWakeWordsBlob = mergeWakeWordsBlob(device?.wakeWords, {
+    meta: {
+      ...wakeWordsBlob.meta,
+      smartHomeConfig: normalizeSmartHomeConfig(smartHomeConfig || wakeWordsBlob.meta.smartHomeConfig || {}),
+    },
+  });
 
   const updateData = {
-    systemStatus: JSON.stringify(nextSystemStatus),
+    wakeWords: JSON.stringify(nextWakeWordsBlob),
   };
 
   if (smartDevices !== undefined) {
@@ -142,9 +177,9 @@ export async function persistSmartHomeState(device, { smartHomeConfig, smartDevi
   );
 
   return {
-    systemStatus: nextSystemStatus,
-    smartHomeConfig: nextSystemStatus.smartHomeConfig,
-    smartDevices: smartDevices !== undefined ? smartDevices : parseSmartDevices(device, nextSystemStatus),
+    wakeWordsBlob: nextWakeWordsBlob,
+    smartHomeConfig: nextWakeWordsBlob.meta.smartHomeConfig,
+    smartDevices: smartDevices !== undefined ? smartDevices : parseSmartDevices(device, nextWakeWordsBlob),
   };
 }
 

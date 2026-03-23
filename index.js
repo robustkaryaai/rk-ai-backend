@@ -246,6 +246,89 @@ function parseJsonSafe(value, fallback = {}) {
   }
 }
 
+function normalizeWakeWordList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    try {
+      return normalizeWakeWordList(JSON.parse(value));
+    } catch {
+      return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+  return [];
+}
+
+function parseWakeWordsBlob(raw) {
+  const parsed = parseJsonSafe(raw, null);
+  if (Array.isArray(parsed)) {
+    return { words: normalizeWakeWordList(parsed), meta: {} };
+  }
+  if (parsed && typeof parsed === "object") {
+    const words = normalizeWakeWordList(
+      parsed.words ?? parsed.wakeWords ?? parsed.list ?? parsed.items ?? []
+    );
+    const legacyMeta = {};
+    for (const key of [
+      "nightProtocolEnabled",
+      "ttsConfig",
+      "smartHomeConfig",
+      "sttLogs",
+      "linkedAccount",
+      "trialSecret",
+      "trialLinkedUserId",
+      "trialLinkedAt",
+      "trialStartedAt",
+    ]) {
+      if (parsed[key] !== undefined) {
+        legacyMeta[key] = parsed[key];
+      }
+    }
+    const meta = {
+      ...(parsed.meta && typeof parsed.meta === "object" ? parsed.meta : {}),
+      ...legacyMeta,
+    };
+    return { words, meta };
+  }
+  return { words: [], meta: {} };
+}
+
+function mergeWakeWordsBlob(raw, patch = {}) {
+  const current = parseWakeWordsBlob(raw);
+  const next = {
+    words: Array.isArray(patch.words) ? normalizeWakeWordList(patch.words) : current.words,
+    meta: {
+      ...current.meta,
+      ...(patch.meta && typeof patch.meta === "object" ? patch.meta : {}),
+    },
+  };
+  return next;
+}
+
+async function updateDeviceDocumentWithRetry(deviceId, updateData) {
+  const sanitizedUpdateData = { ...(updateData || {}) };
+
+  try {
+    return await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      deviceId,
+      sanitizedUpdateData
+    );
+  } catch (err) {
+    return await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      deviceId,
+      sanitizedUpdateData
+    );
+  }
+}
+
 function sanitizeSttLogs(logs) {
   if (!Array.isArray(logs)) return [];
   return logs
@@ -260,8 +343,8 @@ function sanitizeSttLogs(logs) {
 async function readPersistedSttLogs(slug) {
   try {
     const device = await getUserPlanBySlug(slug);
-    const systemStatus = parseJsonSafe(device.systemStatus, {});
-    return sanitizeSttLogs(systemStatus.sttLogs || []);
+    const wakeWordsBlob = parseWakeWordsBlob(device.wakeWords);
+    return sanitizeSttLogs(wakeWordsBlob.meta.sttLogs || []);
   } catch (err) {
     console.warn(`[STT-Logs] Failed to read persisted logs for ${slug}:`, err.message || err);
     return [];
@@ -271,13 +354,14 @@ async function readPersistedSttLogs(slug) {
 async function writePersistedSttLogs(slug, logs) {
   const nextLogs = sanitizeSttLogs(logs);
   const device = await getUserPlanBySlug(slug);
-  const systemStatus = parseJsonSafe(device.systemStatus, {});
-  systemStatus.sttLogs = nextLogs;
+  const wakeWordsBlob = mergeWakeWordsBlob(device.wakeWords, {
+    meta: { sttLogs: nextLogs }
+  });
   await db.updateDocument(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
     device.$id,
-    { systemStatus: JSON.stringify(systemStatus) }
+    { wakeWords: JSON.stringify(wakeWordsBlob) }
   );
   return nextLogs;
 }
@@ -664,11 +748,8 @@ app.get("/limits/:slug", async (req, res) => {
       trialEndDate &&
       trialEndDate > now;
 
-    let sys = {};
-    try {
-      sys = JSON.parse(device.systemStatus || "{}");
-    } catch (e) {}
-    const trialSecretPresent = !!sys.trialSecret;
+    const wakeWordsBlob = parseWakeWordsBlob(device.wakeWords);
+    const trialSecretPresent = !!wakeWordsBlob.meta.trialSecret;
 
     // UI shows "infinity" while trial is active (device still uses numeric tier for quotas)
     const displayTier = trialActive ? "infinity" : tier;
@@ -1023,33 +1104,27 @@ app.post("/device/:slug/settings", async (req, res) => {
       settings.ownerEmail || settings.googleEmail || settings.email || ""
     ).trim();
 
-    // Safely pack unmapped UI configs into systemStatus so Appwrite doesn't crash on missing schema attributes
-    let currentConfig = {};
-    try { currentConfig = JSON.parse(device.systemStatus || "{}"); } catch(e) {}
+    const wakeWordsBlob = mergeWakeWordsBlob(device.wakeWords);
     
-    let configUpdated = false;
     if (settings.nightProtocolEnabled !== undefined) {
-      currentConfig.nightProtocolEnabled = settings.nightProtocolEnabled;
-      delete updateData.nightProtocolEnabled; // Remove so Appwrite doesn't throw Attribute Error
-      configUpdated = true;
+      wakeWordsBlob.meta.nightProtocolEnabled = settings.nightProtocolEnabled;
+      delete updateData.nightProtocolEnabled;
     }
     if (settings.smartHomeConfig !== undefined) {
-      currentConfig.smartHomeConfig = normalizeSmartHomeConfig(settings.smartHomeConfig || {});
+      wakeWordsBlob.meta.smartHomeConfig = normalizeSmartHomeConfig(settings.smartHomeConfig || {});
       delete updateData.smartHomeConfig;
-      configUpdated = true;
     }
     if (settings.ttsConfig !== undefined) {
-      currentConfig.ttsConfig = settings.ttsConfig || {};
+      wakeWordsBlob.meta.ttsConfig = settings.ttsConfig || {};
       delete updateData.ttsConfig;
-      configUpdated = true;
     }
     if (ownerUserId || ownerEmail) {
-      currentConfig.linkedAccount = {
-        ...(currentConfig.linkedAccount || {}),
-        userId: ownerUserId || currentConfig.linkedAccount?.userId || "",
-        email: ownerEmail || currentConfig.linkedAccount?.email || "",
-        source: settings.ownerSource || currentConfig.linkedAccount?.source || "appwrite",
-        linkedAt: currentConfig.linkedAccount?.linkedAt || new Date().toISOString(),
+      wakeWordsBlob.meta.linkedAccount = {
+        ...(wakeWordsBlob.meta.linkedAccount || {}),
+        userId: ownerUserId || wakeWordsBlob.meta.linkedAccount?.userId || "",
+        email: ownerEmail || wakeWordsBlob.meta.linkedAccount?.email || "",
+        source: settings.ownerSource || wakeWordsBlob.meta.linkedAccount?.source || "appwrite",
+        linkedAt: wakeWordsBlob.meta.linkedAccount?.linkedAt || new Date().toISOString(),
       };
       if (ownerEmail) {
         updateData.email = ownerEmail;
@@ -1060,10 +1135,6 @@ app.post("/device/:slug/settings", async (req, res) => {
       delete updateData.googleUserId;
       delete updateData.ownerEmail;
       delete updateData.googleEmail;
-      configUpdated = true;
-    }
-    if (configUpdated) {
-      updateData.systemStatus = JSON.stringify(currentConfig);
     }
 
     // 🚀 If assistantName is updated, use Gemini to generate wake word variations
@@ -1085,27 +1156,25 @@ app.post("/device/:slug/settings", async (req, res) => {
           variations.unshift(settings.assistantName);
         }
         
-        updateData.wakeWords = JSON.stringify(variations);
+        wakeWordsBlob.words = variations;
         console.log(`[Settings] Generated wake words:`, variations);
       } catch (err) {
         console.error(`[Settings] Failed to generate wake words:`, err);
         // Fallback to just the name
-        updateData.wakeWords = JSON.stringify([settings.assistantName]);
+        wakeWordsBlob.words = [settings.assistantName];
       }
     }
 
-    await db.updateDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      device.$id,
-      updateData
-    );
+    updateData.wakeWords = JSON.stringify(wakeWordsBlob);
+
+    await updateDeviceDocumentWithRetry(device.$id, updateData);
 
     return res.json({ 
-      success: true, 
-      wakeWords: updateData.wakeWords ? JSON.parse(updateData.wakeWords) : null,
-      systemStatus: currentConfig,
-      smartHomeConfig: currentConfig.smartHomeConfig || null,
+      success: true,
+      wakeWords: wakeWordsBlob.words || null,
+      ttsConfig: wakeWordsBlob.meta.ttsConfig || null,
+      nightProtocolEnabled: wakeWordsBlob.meta.nightProtocolEnabled ?? null,
+      smartHomeConfig: wakeWordsBlob.meta.smartHomeConfig || null,
     });
   } catch (err) {
     console.error(`[Settings] Error updating settings:`, err);
@@ -1958,33 +2027,28 @@ app.get("/web/profile/:userId", async (req, res) => {
 
     const trials = (devicesTrialReq.documents || [])
       .map((d) => {
-        let sys = {};
-        try {
-          sys = JSON.parse(d.systemStatus || "{}");
-        } catch (e) {}
-        if (sys.trialLinkedUserId !== userId) return null;
-        return {
-          deviceSlug: d.slug,
-          trialEnd: d.trialEnd || null,
-          trialUsed: d.trialUsed,
-          linkedAt: sys.trialLinkedAt || null
-        };
-      })
-      .filter(Boolean);
+    const wakeWordsBlob = parseWakeWordsBlob(d.wakeWords);
+    const meta = wakeWordsBlob.meta || {};
+    if (meta.trialLinkedUserId !== userId) return null;
+    return {
+      deviceSlug: d.slug,
+      trialEnd: d.trialEnd || null,
+      trialUsed: d.trialUsed,
+      linkedAt: meta.trialLinkedAt || null
+    };
+  })
+  .filter(Boolean);
 
     const devices = (devicesTrialReq.documents || [])
       .map((d) => {
-        let sys = {};
-        try {
-          sys = JSON.parse(d.systemStatus || "{}");
-        } catch (e) {}
-
-        const linked = sys.linkedAccount || {};
-        const linkedUserId = String(linked.userId || sys.trialLinkedUserId || d.googleUserId || d.userId || "").trim();
+        const wakeWordsBlob = parseWakeWordsBlob(d.wakeWords);
+        const meta = wakeWordsBlob.meta || {};
+        const linked = meta.linkedAccount || {};
+        const linkedUserId = String(linked.userId || meta.trialLinkedUserId || d.googleUserId || d.userId || "").trim();
         const linkedEmail = String(linked.email || d.email || "").trim();
         const matchesUser = linkedUserId && linkedUserId === userId;
         const matchesEmail = email && linkedEmail && linkedEmail === email;
-        const matchesTrial = sys.trialLinkedUserId && sys.trialLinkedUserId === userId;
+        const matchesTrial = meta.trialLinkedUserId && meta.trialLinkedUserId === userId;
 
         if (!matchesUser && !matchesEmail && !matchesTrial) return null;
 
@@ -1997,7 +2061,7 @@ app.get("/web/profile/:userId", async (req, res) => {
           subscription: d.subscription || "false",
           tier: d["subscription-tier"] ?? 0,
           trialEnd: d.trialEnd || null,
-          linkedAt: linked.linkedAt || sys.trialLinkedAt || d.$createdAt || d.$updatedAt || null,
+          linkedAt: linked.linkedAt || meta.trialLinkedAt || d.$createdAt || d.$updatedAt || null,
           storageUsing: d.storageUsing || "supabase",
         };
       })
@@ -2224,7 +2288,7 @@ app.get("/waitlist/stats", (req, res) => {
   return app._router.handle(req, res, () => {});
 });
 
-// 🚀 START TRIAL (Device-based tracking + hardware-bound secret in systemStatus)
+// 🚀 START TRIAL (Device-based tracking + hardware-bound secret in wakeWords metadata)
 app.post("/device/:slug/trial", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
@@ -2273,14 +2337,11 @@ app.post("/device/:slug/trial", async (req, res) => {
       });
     }
 
-    let sys = {};
-    try {
-      sys = JSON.parse(device.systemStatus || "{}");
-    } catch (e) {}
-    if (!sys.trialSecret) {
-      sys.trialSecret = crypto.randomBytes(32).toString("hex");
+    const wakeWordsBlob = parseWakeWordsBlob(device.wakeWords);
+    if (!wakeWordsBlob.meta.trialSecret) {
+      wakeWordsBlob.meta.trialSecret = crypto.randomBytes(32).toString("hex");
     }
-    sys.trialStartedAt = now.toISOString();
+    wakeWordsBlob.meta.trialStartedAt = now.toISOString();
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const linkUserId =
       typeof body.userId === "string" && body.userId.length > 0
@@ -2289,26 +2350,21 @@ app.post("/device/:slug/trial", async (req, res) => {
           ? body.appwriteUserId
           : null;
     if (linkUserId) {
-      sys.trialLinkedUserId = linkUserId;
-      sys.trialLinkedAt = now.toISOString();
+      wakeWordsBlob.meta.trialLinkedUserId = linkUserId;
+      wakeWordsBlob.meta.trialLinkedAt = now.toISOString();
     }
 
     const trialDays = 7;
     const newTrialEnd = new Date();
     newTrialEnd.setDate(newTrialEnd.getDate() + trialDays);
 
-    await db.updateDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      device.$id,
-      {
-        subscription: "true",
-        "subscription-tier": 1,
-        trialUsed: "true",
-        trialEnd: newTrialEnd.toISOString(),
-        systemStatus: JSON.stringify(sys)
-      }
-    );
+    await updateDeviceDocumentWithRetry(device.$id, {
+      subscription: "true",
+      "subscription-tier": 1,
+      trialUsed: "true",
+      trialEnd: newTrialEnd.toISOString(),
+      wakeWords: JSON.stringify(wakeWordsBlob)
+    });
 
     return res.json({
       ok: true,
