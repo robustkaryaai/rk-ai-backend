@@ -216,6 +216,13 @@ const deviceBusyState = new Map(); // 🚀 Track explicit processing state (now 
 const deviceNightModeState = new Map(); // Track live night protocol runtime state separately from settings
 const deviceDownloadProgress = new Map(); // 🚀 TRACK MUSIC DOWNLOADS
 const deviceSTTLogs = new Map(); // 🚀 TRACK STT LOGS FOR FRONEND APP (slug -> [{timestamp, text}])
+const deviceBusyStateAt = new Map();
+const deviceDownloadProgressAt = new Map();
+const deviceLastActiveBusyState = new Map();
+const deviceLastActiveBusyStateAt = new Map();
+const deviceLastDownloadProgress = new Map();
+const deviceLastDownloadProgressAt = new Map();
+const STATUS_STICKY_MS = 8000;
 
 // Helper to normalize slug to 9-digit string
 app.get("/ai/models", async (req, res) => {
@@ -243,11 +250,25 @@ app.get("/device/:slug/status", async (req, res) => {
   const rawSlug = req.params.slug;
   const slug = normalizeSlug(rawSlug);
   const lastSeen = deviceLastSeen.get(slug);
-  const busyState = deviceBusyState.get(slug) || "idle";
+  const rawBusyState = deviceBusyState.get(slug) || "idle";
+  const rawBusyStateAt = deviceBusyStateAt.get(slug) || 0;
+  const lastActiveBusyState = deviceLastActiveBusyState.get(slug) || "idle";
+  const lastActiveBusyStateAt = deviceLastActiveBusyStateAt.get(slug) || 0;
   const nightModeActive = deviceNightModeState.get(slug) || false;
-  const downloadProgress = deviceDownloadProgress.get(slug) || null;
+  const rawDownloadProgress = deviceDownloadProgress.get(slug) || null;
+  const rawDownloadProgressAt = deviceDownloadProgressAt.get(slug) || 0;
+  const lastDownloadProgress = deviceLastDownloadProgress.get(slug) || null;
+  const lastDownloadProgressAt = deviceLastDownloadProgressAt.get(slug) || 0;
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
+  const busyState =
+    rawBusyState !== "idle"
+      ? rawBusyState
+      : ((now - lastActiveBusyStateAt) <= STATUS_STICKY_MS ? lastActiveBusyState : rawBusyState);
+  const downloadProgress =
+    rawDownloadProgress !== null
+      ? rawDownloadProgress
+      : ((now - lastDownloadProgressAt) <= STATUS_STICKY_MS ? lastDownloadProgress : null);
 
   // Fetch storage info
   let storageMB = 0;
@@ -302,6 +323,11 @@ app.post("/device/:slug/state", (req, res) => {
   if (!state) return res.status(400).json({ error: "state required" });
   
   deviceBusyState.set(slug, state);
+  deviceBusyStateAt.set(slug, Date.now());
+  if (state !== "idle") {
+    deviceLastActiveBusyState.set(slug, state);
+    deviceLastActiveBusyStateAt.set(slug, Date.now());
+  }
   deviceLastSeen.set(slug, Date.now()); // State update also acts as heartbeat
   
   console.log(`[Device-State] ${slug} -> ${state.toUpperCase()}`);
@@ -1325,8 +1351,22 @@ app.post("/device/:slug/update-status", async (req, res) => {
     const slug = normalizeSlug(req.params.slug);
     const { busyState, downloadProgress, smart_devices } = req.body;
 
-    if (busyState) deviceBusyState.set(slug, busyState);
-    if (downloadProgress !== undefined) deviceDownloadProgress.set(slug, downloadProgress);
+    if (busyState) {
+      deviceBusyState.set(slug, busyState);
+      deviceBusyStateAt.set(slug, Date.now());
+      if (busyState !== "idle") {
+        deviceLastActiveBusyState.set(slug, busyState);
+        deviceLastActiveBusyStateAt.set(slug, Date.now());
+      }
+    }
+    if (downloadProgress !== undefined) {
+      deviceDownloadProgress.set(slug, downloadProgress);
+      deviceDownloadProgressAt.set(slug, Date.now());
+      if (downloadProgress !== null) {
+        deviceLastDownloadProgress.set(slug, downloadProgress);
+        deviceLastDownloadProgressAt.set(slug, Date.now());
+      }
+    }
 
     // Pi network scan posts discovered bulbs so the mobile app can see them (same field as /settings).
     if (smart_devices !== undefined && Array.isArray(smart_devices)) {
