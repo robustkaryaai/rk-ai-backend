@@ -19,7 +19,7 @@ import {
   controlCloudSmartDevice,
 } from "./services/smartHomeService.js";
 import { getWaitlistStatus, listWaitlistEntries, upsertWaitlistEntry } from "./services/waitlistService.js";
-import { isAuthorizedDesktopRelayRequest, openDesktopRelayConnection, relayDesktopCommand } from "./services/desktopRelayService.js";
+import { isAuthorizedDesktopRelayRequest, openDesktopRelayConnection, relayDesktopCommand, isDesktopConnected } from "./services/desktopRelayService.js";
 import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
@@ -341,6 +341,7 @@ app.get("/device/:slug/status", async (req, res) => {
     busyState,
     isBusy: busyState !== "idle",
     nightModeActive,
+    desktopConnected: isDesktopConnected(slug),
     downloadProgress, // 🚀 Include download info
     storageMB: storageMB || 0,
     shoom: true
@@ -1015,6 +1016,12 @@ app.post("/device/:slug/settings", async (req, res) => {
     if (!device) return res.status(404).json({ error: "device_not_found" });
 
     const updateData = { ...settings };
+    const ownerUserId = String(
+      settings.appwriteUserId || settings.ownerUserId || settings.userId || settings.googleUserId || ""
+    ).trim();
+    const ownerEmail = String(
+      settings.ownerEmail || settings.googleEmail || settings.email || ""
+    ).trim();
 
     // Safely pack unmapped UI configs into systemStatus so Appwrite doesn't crash on missing schema attributes
     let currentConfig = {};
@@ -1034,6 +1041,25 @@ app.post("/device/:slug/settings", async (req, res) => {
     if (settings.ttsConfig !== undefined) {
       currentConfig.ttsConfig = settings.ttsConfig || {};
       delete updateData.ttsConfig;
+      configUpdated = true;
+    }
+    if (ownerUserId || ownerEmail) {
+      currentConfig.linkedAccount = {
+        ...(currentConfig.linkedAccount || {}),
+        userId: ownerUserId || currentConfig.linkedAccount?.userId || "",
+        email: ownerEmail || currentConfig.linkedAccount?.email || "",
+        source: settings.ownerSource || currentConfig.linkedAccount?.source || "appwrite",
+        linkedAt: currentConfig.linkedAccount?.linkedAt || new Date().toISOString(),
+      };
+      if (ownerEmail) {
+        updateData.email = ownerEmail;
+      }
+      delete updateData.appwriteUserId;
+      delete updateData.ownerUserId;
+      delete updateData.userId;
+      delete updateData.googleUserId;
+      delete updateData.ownerEmail;
+      delete updateData.googleEmail;
       configUpdated = true;
     }
     if (configUpdated) {
@@ -1946,12 +1972,44 @@ app.get("/web/profile/:userId", async (req, res) => {
       })
       .filter(Boolean);
 
+    const devices = (devicesTrialReq.documents || [])
+      .map((d) => {
+        let sys = {};
+        try {
+          sys = JSON.parse(d.systemStatus || "{}");
+        } catch (e) {}
+
+        const linked = sys.linkedAccount || {};
+        const linkedUserId = String(linked.userId || sys.trialLinkedUserId || d.googleUserId || d.userId || "").trim();
+        const linkedEmail = String(linked.email || d.email || "").trim();
+        const matchesUser = linkedUserId && linkedUserId === userId;
+        const matchesEmail = email && linkedEmail && linkedEmail === email;
+        const matchesTrial = sys.trialLinkedUserId && sys.trialLinkedUserId === userId;
+
+        if (!matchesUser && !matchesEmail && !matchesTrial) return null;
+
+        return {
+          slug: d.slug,
+          name: d.name_of_device || d.name || `Device ${d.slug}`,
+          email: linkedEmail,
+          userId: linkedUserId || userId,
+          status: d.status || "online",
+          subscription: d.subscription || "false",
+          tier: d["subscription-tier"] ?? 0,
+          trialEnd: d.trialEnd || null,
+          linkedAt: linked.linkedAt || sys.trialLinkedAt || d.$createdAt || d.$updatedAt || null,
+          storageUsing: d.storageUsing || "supabase",
+        };
+      })
+      .filter(Boolean);
+
     return res.json({
       waitlist: waitlistRows,
       orders: ordersReq.documents,
       preorders: preordersReq.documents,
       subscriptions: subscriptionsReq.documents,
-      trials
+      trials,
+      devices
     });
   } catch (err) {
     console.error("PROFILE ERROR:", err);
