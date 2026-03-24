@@ -1,6 +1,5 @@
 import express from "express";
 import dotenv from "dotenv";
-import crypto from "crypto";
 
 import { logInfo, logError } from "./utils/logger.js";
 import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug, db, users } from "./services/appwriteClient.js";
@@ -10,16 +9,6 @@ import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
 import { callGemini, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
 import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./services/supabaseClient.js";
-import {
-  getSmartHomeState,
-  normalizeSmartHomeConfig,
-  persistSmartHomeState,
-  mergeSmartDevices,
-  syncTuyaDevicesForDevice,
-  controlCloudSmartDevice,
-} from "./services/smartHomeService.js";
-import { getWaitlistStatus, listWaitlistEntries, upsertWaitlistEntry } from "./services/waitlistService.js";
-import { isAuthorizedDesktopRelayRequest, openDesktopRelayConnection, relayDesktopCommand, isDesktopConnected } from "./services/desktopRelayService.js";
 import { HfInference } from "@huggingface/inference";
 
 dotenv.config();
@@ -32,17 +21,17 @@ const app = express();
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = ["https://rexycore.vercel.app", "http://localhost:3000"];
-  
+
   if (allowedOrigins.includes(origin)) {
     res.header("Access-Control-Allow-Origin", origin);
     res.header("Access-Control-Allow-Credentials", "true");
   } else {
     res.header("Access-Control-Allow-Origin", "*");
   }
-  
+
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Appwrite-Project, X-Appwrite-Key, x-user-id");
-  
+
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
@@ -60,8 +49,8 @@ app.get("/audio/:slug", (req, res) => {
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
 
-  return res.json({ 
-    ok: true, 
+  return res.json({
+    ok: true,
     slug,
     status: isOnline ? "online" : "offline",
     lastSeen: lastSeen ? new Date(lastSeen).toISOString() : null,
@@ -101,10 +90,10 @@ app.post("/audio/:slug", async (req, res) => {
     console.log(`[Audio-STT] Decoded for ${slug}: "${text}"`);
 
     if (!text.trim()) {
-      return res.json({ 
-        reply: "I couldn't hear you clearly. Could you repeat that?", 
+      return res.json({
+        reply: "I couldn't hear you clearly. Could you repeat that?",
         text: "",
-        shoom: true 
+        shoom: true
       });
     }
 
@@ -137,7 +126,6 @@ INTENTS
 - alarm: set alarms with specific times (extract time from prompt).
 - announcement: make announcements, broadcast messages, notify.
 - period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music.
-- lumina_coding: user is starting a coding session on Lumina OS / Lumina — wants smart lights + PC workspace (IDE, project folder) prepared. Examples: "I'm coming to code on Lumina", "prepare my Lumina workspace", "set up for coding on Lumina OS".
 
 STRICT CLASSIFICATION RULES
 1) Generative intents (docx, ppt, note, planner, timetable, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note) MUST ONLY be triggered if the user EXPLICITLY uses a verb like "make", "generate", "create", "build", "write", "render", or "prepare". 
@@ -157,13 +145,12 @@ STRICT CLASSIFICATION RULES
 11) "emergency", "fire", "evacuate", "alert" → "emergency_alarm" or "fire_alarm".
 12) Viva/interview/yourself/oral questions → "chat".
 13) Output must be pure JSON; do not wrap in markdown; no commentary.
-14) If the user wants Lumina OS / Lumina coding environment with desk and PC → intent = "lumina_coding". Optional parameters: "folder" (absolute path if they name a project), "ide" (e.g. "Visual Studio Code", "Cursor").
 
 
 OUTPUT SCHEMA
 [
   {
-    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music" | "lumina_coding",
+    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music",
     "parameters": {
       "prompt": "description or command",
       "location": "use Delhi, India if not provided for weather/news",
@@ -203,26 +190,14 @@ User: "set alarm for 8 AM"
 [
   { "intent": "alarm", "parameters": { "prompt": "wake up", "time": "8:00 AM" } }
 ]
-User: "I'm coming to code on Lumina, get everything ready"
-[
-  { "intent": "lumina_coding", "parameters": { "prompt": "prepare Lumina coding workspace" } }
-]
 
 Now only output JSON following the schema and rules.`;
 
 // ---------------- DEVICE PRESENCE TRACKING ----------------
 const deviceLastSeen = new Map();
 const deviceBusyState = new Map(); // 🚀 Track explicit processing state (now stores strings like "thinking", "playing", "speaking")
-const deviceNightModeState = new Map(); // Track live night protocol runtime state separately from settings
 const deviceDownloadProgress = new Map(); // 🚀 TRACK MUSIC DOWNLOADS
 const deviceSTTLogs = new Map(); // 🚀 TRACK STT LOGS FOR FRONEND APP (slug -> [{timestamp, text}])
-const deviceBusyStateAt = new Map();
-const deviceDownloadProgressAt = new Map();
-const deviceLastActiveBusyState = new Map();
-const deviceLastActiveBusyStateAt = new Map();
-const deviceLastDownloadProgress = new Map();
-const deviceLastDownloadProgressAt = new Map();
-const STATUS_STICKY_MS = 8000;
 
 // Helper to normalize slug to 9-digit string
 app.get("/ai/models", async (req, res) => {
@@ -236,143 +211,14 @@ const normalizeSlug = (slug) => {
   return s.padStart(9, '0');
 };
 
-function parseJsonSafe(value, fallback = {}) {
-  if (value == null) return fallback;
-  if (typeof value === "object") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-}
-
-function normalizeWakeWordList(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item || "").trim()).filter(Boolean);
-  }
-  if (typeof value === "string") {
-    try {
-      return normalizeWakeWordList(JSON.parse(value));
-    } catch {
-      return value
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }
-  }
-  return [];
-}
-
-function parseWakeWordsBlob(raw) {
-  const parsed = parseJsonSafe(raw, null);
-  if (Array.isArray(parsed)) {
-    return { words: normalizeWakeWordList(parsed), meta: {} };
-  }
-  if (parsed && typeof parsed === "object") {
-    const words = normalizeWakeWordList(
-      parsed.words ?? parsed.wakeWords ?? parsed.list ?? parsed.items ?? []
-    );
-    const legacyMeta = {};
-    for (const key of [
-      "nightProtocolEnabled",
-      "ttsConfig",
-      "smartHomeConfig",
-      "sttLogs",
-      "linkedAccount",
-      "trialSecret",
-      "trialLinkedUserId",
-      "trialLinkedAt",
-      "trialStartedAt",
-    ]) {
-      if (parsed[key] !== undefined) {
-        legacyMeta[key] = parsed[key];
-      }
-    }
-    const meta = {
-      ...(parsed.meta && typeof parsed.meta === "object" ? parsed.meta : {}),
-      ...legacyMeta,
-    };
-    return { words, meta };
-  }
-  return { words: [], meta: {} };
-}
-
-function mergeWakeWordsBlob(raw, patch = {}) {
-  const current = parseWakeWordsBlob(raw);
-  const next = {
-    words: Array.isArray(patch.words) ? normalizeWakeWordList(patch.words) : current.words,
-    meta: {
-      ...current.meta,
-      ...(patch.meta && typeof patch.meta === "object" ? patch.meta : {}),
-    },
-  };
-  return next;
-}
-
-async function updateDeviceDocumentWithRetry(deviceId, updateData) {
-  return await db.updateDocument(
-    process.env.APPWRITE_DB_ID,
-    process.env.APPWRITE_DEVICES_COLLECTION,
-    deviceId,
-    updateData
-  );
-}
-
-function sanitizeSttLogs(logs) {
-  if (!Array.isArray(logs)) return [];
-  return logs
-    .filter((item) => item && typeof item.text === "string" && item.text.trim())
-    .map((item) => ({
-      timestamp: item.timestamp || new Date().toISOString(),
-      text: String(item.text).trim(),
-    }))
-    .slice(-50);
-}
-
-async function readPersistedSttLogs(slug) {
-  try {
-    const device = await getUserPlanBySlug(slug);
-    const wakeWordsBlob = parseWakeWordsBlob(device.wakeWords);
-    return sanitizeSttLogs(wakeWordsBlob.meta.sttLogs || []);
-  } catch (err) {
-    console.warn(`[STT-Logs] Failed to read persisted logs for ${slug}:`, err.message || err);
-    return [];
-  }
-}
-
-async function writePersistedSttLogs(slug, logs) {
-  const nextLogs = sanitizeSttLogs(logs);
-  const device = await getUserPlanBySlug(slug);
-  const wakeWordsBlob = mergeWakeWordsBlob(device.wakeWords, {
-    meta: { sttLogs: nextLogs }
-  });
-  await updateDeviceDocumentWithRetry(device.$id, { wakeWords: JSON.stringify(wakeWordsBlob) });
-  return nextLogs;
-}
-
 app.get("/device/:slug/status", async (req, res) => {
   const rawSlug = req.params.slug;
   const slug = normalizeSlug(rawSlug);
   const lastSeen = deviceLastSeen.get(slug);
-  const rawBusyState = deviceBusyState.get(slug) || "idle";
-  const rawBusyStateAt = deviceBusyStateAt.get(slug) || 0;
-  const lastActiveBusyState = deviceLastActiveBusyState.get(slug) || "idle";
-  const lastActiveBusyStateAt = deviceLastActiveBusyStateAt.get(slug) || 0;
-  const nightModeActive = deviceNightModeState.get(slug) || false;
-  const rawDownloadProgress = deviceDownloadProgress.get(slug) || null;
-  const rawDownloadProgressAt = deviceDownloadProgressAt.get(slug) || 0;
-  const lastDownloadProgress = deviceLastDownloadProgress.get(slug) || null;
-  const lastDownloadProgressAt = deviceLastDownloadProgressAt.get(slug) || 0;
+  const busyState = deviceBusyState.get(slug) || "idle";
+  const downloadProgress = deviceDownloadProgress.get(slug) || null;
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
-  const busyState =
-    rawBusyState !== "idle"
-      ? rawBusyState
-      : ((now - lastActiveBusyStateAt) <= STATUS_STICKY_MS ? lastActiveBusyState : rawBusyState);
-  const downloadProgress =
-    rawDownloadProgress !== null
-      ? rawDownloadProgress
-      : ((now - lastDownloadProgressAt) <= STATUS_STICKY_MS ? lastDownloadProgress : null);
 
   // Fetch storage info
   let storageMB = 0;
@@ -380,16 +226,16 @@ app.get("/device/:slug/status", async (req, res) => {
     const device = await getUserPlanBySlug(slug);
     if (device) {
       const tierNum = device.subscription === "true" ? (isNaN(device["subscription-tier"]) ? String(device["subscription-tier"]).toLowerCase() : Number(device["subscription-tier"])) : 0;
-      
+
       // Check trial expiry
-      if (tierNum === 1 && device.trialEnd) {
-        if (new Date() > new Date(device.trialEnd)) {
+      if (tierNum === "infinity" && device.trial_end) {
+        if (new Date() > new Date(device.trial_end)) {
           console.log(`[Trial Expiry] Revoking expired trial for ${slug}`);
           db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, {
             subscription: "false",
             "subscription-tier": 0
           }).catch(console.error);
-          return res.json({ slug, status: isOnline ? "online" : "offline", isBusy: busyState !== "idle", nightModeActive, storageMB: 0, shoom: true });
+          return res.json({ slug, status: isOnline ? "online" : "offline", isBusy: busyState !== "idle", storageMB: 0, shoom: true });
         }
       }
 
@@ -408,8 +254,6 @@ app.get("/device/:slug/status", async (req, res) => {
     diffSeconds: lastSeen ? Math.floor((now - lastSeen) / 1000) : null,
     busyState,
     isBusy: busyState !== "idle",
-    nightModeActive,
-    desktopConnected: isDesktopConnected(slug),
     downloadProgress, // 🚀 Include download info
     storageMB: storageMB || 0,
     shoom: true
@@ -424,80 +268,38 @@ app.get("/device/:slug/status", async (req, res) => {
 app.post("/device/:slug/state", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
   const { state } = req.body; // e.g. "thinking", "speaking", "playing", "idle"
-  
+
   if (!state) return res.status(400).json({ error: "state required" });
-  
+
   deviceBusyState.set(slug, state);
-  deviceBusyStateAt.set(slug, Date.now());
-  if (state !== "idle") {
-    deviceLastActiveBusyState.set(slug, state);
-    deviceLastActiveBusyStateAt.set(slug, Date.now());
-  }
   deviceLastSeen.set(slug, Date.now()); // State update also acts as heartbeat
-  
+
   console.log(`[Device-State] ${slug} -> ${state.toUpperCase()}`);
   return res.json({ ok: true });
 });
 
-app.post("/device/:slug/night-mode", (req, res) => {
+// ---------------- STT LOG STREAM ----------------
+app.post("/device/:slug/stt-log", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
-  const { active } = req.body;
-  if (typeof active !== "boolean") {
-    return res.status(400).json({ error: "active boolean required" });
-  }
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: "text required" });
 
-  deviceNightModeState.set(slug, active);
-  deviceLastSeen.set(slug, Date.now());
-  console.log(`[Night-Mode] ${slug} -> ${active ? "ACTIVE" : "INACTIVE"}`);
+  if (!deviceSTTLogs.has(slug)) deviceSTTLogs.set(slug, []);
+
+  const logs = deviceSTTLogs.get(slug);
+  logs.push({ timestamp: new Date().toISOString(), text });
+
+  // Keep only last 50 logs in memory to avoid leaking
+  if (logs.length > 50) logs.shift();
+
+  deviceLastSeen.set(slug, Date.now()); // Acts as heartbeat
   return res.json({ ok: true });
 });
 
-// ---------------- STT LOG STREAM ----------------
-app.post("/device/:slug/stt-log", async (req, res) => {
-  try {
-    const slug = normalizeSlug(req.params.slug);
-    const text = String(req.body?.text || "").trim();
-    if (!text) return res.status(400).json({ error: "text required" });
-
-    const inMemoryLogs = deviceSTTLogs.get(slug) || [];
-    const nextLogs = sanitizeSttLogs([
-      ...inMemoryLogs,
-      { timestamp: new Date().toISOString(), text },
-    ]);
-
-    deviceSTTLogs.set(slug, nextLogs);
-    deviceLastSeen.set(slug, Date.now());
-
-    try {
-      await writePersistedSttLogs(slug, nextLogs);
-    } catch (err) {
-      console.error(`[STT-Logs] Persist failed for ${slug}:`, err.message || err);
-    }
-
-    return res.json({ ok: true, logs: nextLogs });
-  } catch (err) {
-    console.error("[STT-Logs] POST failed:", err);
-    return res.status(500).json({ error: String(err) });
-  }
-});
-
-app.get("/device/:slug/stt-log", async (req, res) => {
-  try {
-    const slug = normalizeSlug(req.params.slug);
-    let logs = sanitizeSttLogs(deviceSTTLogs.get(slug) || []);
-
-    if (!logs.length) {
-      logs = await readPersistedSttLogs(slug);
-      if (logs.length) {
-        deviceSTTLogs.set(slug, logs);
-      }
-    }
-
-    return res.json({ ok: true, logs });
-  } catch (err) {
-    console.error("[STT-Logs] GET failed:", err);
-    return res.status(500).json({ error: String(err) });
-  }
+app.get("/device/:slug/stt-log", (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  const logs = deviceSTTLogs.get(slug) || [];
+  return res.json({ ok: true, logs });
 });
 
 // ---------------- DESKTOP AUTH PROXY ----------------
@@ -562,7 +364,7 @@ async function handleTextRequest(req, res, slug, text, device) {
       const parts = text.replace("LOCAL_INTENT_SYNC:", "").split("| AI:");
       const userMsg = parts[0]?.trim() || "User command";
       const aiReply = parts[1]?.trim() || "Processed locally";
-      
+
       await appendChat(normSlug, userMsg, aiReply);
       return res.json({ ok: true, synced: true });
     }
@@ -570,16 +372,16 @@ async function handleTextRequest(req, res, slug, text, device) {
     // 1. Parallelize Gemini and Presence
     const [rawIntents] = await Promise.all([
       callGemini(
-        SYSTEM_PROMPT, 
-        [], 
-        text, 
-        2, 
-        device.geminiApiKey || null, 
+        SYSTEM_PROMPT,
+        [],
+        text,
+        2,
+        device.geminiApiKey || null,
         device.geminiModel || null
       ),
       appendUser(normSlug, `User: ${text}`)
     ]);
-    
+
     // Mark seen on text request too
     deviceLastSeen.set(normSlug, Date.now());
 
@@ -601,8 +403,8 @@ async function handleTextRequest(req, res, slug, text, device) {
     const isMusic = intents.some(i => i?.intent === "music");
 
     // Strategy: Priority-based selection
-    const priorityIntents = ["music", "lumina_coding", "announcement", "chat", "general", "weather", "news"];
-    
+    const priorityIntents = ["music", "announcement", "chat", "general", "weather", "news"];
+
     // Find first matching high-priority intent result
     for (const pIntent of priorityIntents) {
       const idx = intents.findIndex(i => i?.intent === pIntent);
@@ -627,13 +429,13 @@ async function handleTextRequest(req, res, slug, text, device) {
       await updateLastAI(normSlug, finalReply);
     }
 
-    const responseObj = { 
-      reply: finalReply || "I processed that for you.", 
-      text, 
+    const responseObj = {
+      reply: finalReply || "I processed that for you.",
+      text,
       shoom: true,
       timestamp: Date.now()
     };
-    
+
     if (song_url) {
       responseObj.song_url = song_url;
       if (isMusic) responseObj.link = song_url;
@@ -724,30 +526,14 @@ app.get("/limits/:slug", async (req, res) => {
     const isPro = device.subscription === "true";
     const trialUsed = device.trialUsed === "true" || device.trialUsed === true;
     const trialEnd = device.trialEnd || null;
-    const now = new Date();
-    const trialEndDate = trialEnd ? new Date(trialEnd) : null;
-    const trialActive =
-      isPro &&
-      trialUsed &&
-      trialEndDate &&
-      trialEndDate > now;
-
-    const wakeWordsBlob = parseWakeWordsBlob(device.wakeWords);
-    const trialSecretPresent = !!wakeWordsBlob.meta.trialSecret;
-
-    // UI shows "infinity" while trial is active (device still uses numeric tier for quotas)
-    const displayTier = trialActive ? "infinity" : tier;
 
     return res.json({
       used: todayLimits,
       allowed: tierLimits,
       tier,
-      displayTier,
       isPro,
       trialUsed,
-      trialEnd,
-      trialActive: !!trialActive,
-      trialSecretPresent
+      trialEnd
     });
   } catch (err) {
     logError("LIMITS ERROR:", err);
@@ -771,7 +557,7 @@ app.get("/auth/google/start/:slug", async (req, res) => {
     // 🚀 CHECK SUBSCRIPTION TIER: Only paid users can link Google Drive
     const cleanSlug = normalizeSlug(slug.split('|')[0]);
     const device = await getUserPlanBySlug(cleanSlug);
-    
+
     if (!device || device.subscription !== "true") {
       console.log(`[Google OAuth] Refusing flow for ${slug} - Subscription not active.`);
       const isNative = state.includes('|native');
@@ -782,7 +568,7 @@ app.get("/auth/google/start/:slug", async (req, res) => {
     // 🚀 FORCE PRODUCTION URL IF ON RENDER
     const host = req.get('host') || "";
     let redirectUri = `https://rk-ai-backend.onrender.com/auth/google/callback`;
-    
+
     if (host.includes('localhost')) {
       redirectUri = `http://localhost:4000/auth/google/callback`;
     }
@@ -812,13 +598,13 @@ app.get("/auth/google/callback", async (req, res) => {
     const { code, state } = req.query;
     // Decode state carefully
     const decodedState = decodeURIComponent(state || "");
-    
+
     // 🚀 NEW: Detect if this is a web login flow
     const isWebFlow = decodedState.startsWith("web|");
     const webRedirect = isWebFlow ? decodedState.split('|')[1] : null;
-    
+
     const slug = isWebFlow ? null : decodedState.split('|')[0];
-    
+
     if (!code || (!isWebFlow && !slug)) {
       console.error("Missing code or state:", { code: !!code, slug, isWebFlow });
       return res.redirect(`${FRONTEND_URL}/settings?google_error=missing_params`);
@@ -948,7 +734,7 @@ app.get("/auth/google/callback", async (req, res) => {
     // 🚀 Robust Deep Link Redirect
     const isNative = decodedState.includes('|native');
     const baseRedirectUrl = isNative ? 'com.rexycore.rkai://settings' : `${FRONTEND_URL}/settings`;
-    
+
     console.log(`✅ Appwrite updated! Native: ${isNative}, Redirecting to: ${baseRedirectUrl}`);
     return res.redirect(`${baseRedirectUrl}?google_connected=true`);
   } catch (err) {
@@ -970,7 +756,7 @@ app.get("/auth/spotify/start/:slug", async (req, res) => {
     const host = req.get('host') || "";
     const protocol = host.includes('localhost') ? 'http' : 'https';
     const redirectUri = `${protocol}://${host}/auth/spotify/callback`;
-    
+
     console.log(`[Spotify OAuth] Using Redirect URI: ${redirectUri}`);
 
     if (!process.env.SPOTIFY_CLIENT_ID) {
@@ -1020,7 +806,7 @@ app.get("/auth/spotify/callback", async (req, res) => {
 
     const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
       method: "POST",
-      headers: { 
+      headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         "Authorization": `Basic ${authHeader}`
       },
@@ -1032,12 +818,12 @@ app.get("/auth/spotify/callback", async (req, res) => {
     }
 
     const tokenJson = await tokenRes.json();
-    
+
     // Update Appwrite device doc with Spotify tokens
     try {
       const device = await getUserPlanBySlug(slug);
       console.log(`[Spotify OAuth] Updating device doc ${device.$id} for ${slug}...`);
-      
+
       await db.updateDocument(
         process.env.APPWRITE_DB_ID,
         process.env.APPWRITE_DEVICES_COLLECTION,
@@ -1074,51 +860,26 @@ app.post("/device/:slug/settings", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const settings = req.body;
-    
+
     console.log(`[Settings] Updating settings for ${slug}:`, settings);
 
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
 
     const updateData = { ...settings };
-    const ownerUserId = String(
-      settings.appwriteUserId || settings.ownerUserId || settings.userId || settings.googleUserId || ""
-    ).trim();
-    const ownerEmail = String(
-      settings.ownerEmail || settings.googleEmail || settings.email || ""
-    ).trim();
 
-    const wakeWordsBlob = mergeWakeWordsBlob(device.wakeWords);
-    
+    // Safely pack unmapped UI configs into systemStatus so Appwrite doesn't crash on missing schema attributes
+    let currentConfig = {};
+    try { currentConfig = JSON.parse(device.systemStatus || "{}"); } catch (e) { }
+
+    let configUpdated = false;
     if (settings.nightProtocolEnabled !== undefined) {
-      wakeWordsBlob.meta.nightProtocolEnabled = settings.nightProtocolEnabled;
-      delete updateData.nightProtocolEnabled;
+      currentConfig.nightProtocolEnabled = settings.nightProtocolEnabled;
+      delete updateData.nightProtocolEnabled; // Remove so Appwrite doesn't throw Attribute Error
+      configUpdated = true;
     }
-    if (settings.smartHomeConfig !== undefined) {
-      wakeWordsBlob.meta.smartHomeConfig = normalizeSmartHomeConfig(settings.smartHomeConfig || {});
-      delete updateData.smartHomeConfig;
-    }
-    if (settings.ttsConfig !== undefined) {
-      wakeWordsBlob.meta.ttsConfig = settings.ttsConfig || {};
-      delete updateData.ttsConfig;
-    }
-    if (ownerUserId || ownerEmail) {
-      wakeWordsBlob.meta.linkedAccount = {
-        ...(wakeWordsBlob.meta.linkedAccount || {}),
-        userId: ownerUserId || wakeWordsBlob.meta.linkedAccount?.userId || "",
-        email: ownerEmail || wakeWordsBlob.meta.linkedAccount?.email || "",
-        source: settings.ownerSource || wakeWordsBlob.meta.linkedAccount?.source || "appwrite",
-        linkedAt: wakeWordsBlob.meta.linkedAccount?.linkedAt || new Date().toISOString(),
-      };
-      if (ownerEmail) {
-        updateData.email = ownerEmail;
-      }
-      delete updateData.appwriteUserId;
-      delete updateData.ownerUserId;
-      delete updateData.userId;
-      delete updateData.googleUserId;
-      delete updateData.ownerEmail;
-      delete updateData.googleEmail;
+    if (configUpdated) {
+      updateData.systemStatus = JSON.stringify(currentConfig);
     }
 
     // 🚀 If assistantName is updated, use Gemini to generate wake word variations
@@ -1129,160 +890,41 @@ app.post("/device/:slug/settings", async (req, res) => {
         Generate a list of 8-10 variations of this name that a speech-to-text engine might transcribe it as, 
         including common misspellings or similar-sounding words. 
         Return ONLY a JSON array of strings. Example for "Jarvis": ["Jarvis", "Jarvis", "Java", "Travis", "Jarvis AI"].`;
-        
+
         const aiResponse = await callGemini(prompt);
         // Clean the response to ensure it's valid JSON
         const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
         const variations = JSON.parse(cleanedResponse);
-        
+
         // Ensure the original name is included
         if (!variations.includes(settings.assistantName)) {
           variations.unshift(settings.assistantName);
         }
-        
-        wakeWordsBlob.words = variations;
+
+        updateData.wakeWords = JSON.stringify(variations);
         console.log(`[Settings] Generated wake words:`, variations);
       } catch (err) {
         console.error(`[Settings] Failed to generate wake words:`, err);
         // Fallback to just the name
-        wakeWordsBlob.words = [settings.assistantName];
+        updateData.wakeWords = JSON.stringify([settings.assistantName]);
       }
     }
 
-    updateData.wakeWords = JSON.stringify(wakeWordsBlob);
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      updateData
+    );
 
-    await updateDeviceDocumentWithRetry(device.$id, updateData);
-
-    return res.json({ 
+    return res.json({
       success: true,
-      wakeWords: wakeWordsBlob.words || null,
-      ttsConfig: wakeWordsBlob.meta.ttsConfig || null,
-      nightProtocolEnabled: wakeWordsBlob.meta.nightProtocolEnabled ?? null,
-      smartHomeConfig: wakeWordsBlob.meta.smartHomeConfig || null,
+      wakeWords: updateData.wakeWords ? JSON.parse(updateData.wakeWords) : null,
+      systemStatus: currentConfig
     });
   } catch (err) {
     console.error(`[Settings] Error updating settings:`, err);
     res.status(500).json({ error: String(err) });
-  }
-});
-
-app.get("/device/:slug/settings", async (req, res) => {
-  try {
-    const slug = normalizeSlug(req.params.slug);
-    const device = await getUserPlanBySlug(slug);
-    if (!device) return res.status(404).json({ error: "device_not_found" });
-
-    // Send the raw Appwrite document so the Pi parses it exactly as before
-    return res.json({ documents: [device] });
-  } catch (err) {
-    console.error("[Settings] GET error:", err);
-    return res.status(500).json({ error: "server_error" });
-  }
-});
-
-app.get("/device/:slug/smart-home/state", async (req, res) => {
-  try {
-    const slug = normalizeSlug(req.params.slug);
-    const device = await getUserPlanBySlug(slug);
-    const { smartHomeConfig, smartDevices } = getSmartHomeState(device);
-    return res.json({
-      ok: true,
-      smartHomeConfig,
-      smart_devices: smartDevices,
-    });
-  } catch (err) {
-    console.error("[smart-home/state] error:", err);
-    return res.status(500).json({ error: String(err) });
-  }
-});
-
-app.post("/device/:slug/smart-home/providers/:provider/config", async (req, res) => {
-  try {
-    const slug = normalizeSlug(req.params.slug);
-    const provider = String(req.params.provider || "").toLowerCase();
-    const device = await getUserPlanBySlug(slug);
-    const { smartHomeConfig } = getSmartHomeState(device);
-    const nextConfig = normalizeSmartHomeConfig({
-      ...smartHomeConfig,
-      providers: {
-        ...smartHomeConfig.providers,
-        [provider]: {
-          ...(smartHomeConfig.providers?.[provider] || {}),
-          ...(req.body || {}),
-        },
-      },
-    });
-
-    await persistSmartHomeState(device, { smartHomeConfig: nextConfig });
-
-    return res.json({
-      ok: true,
-      provider,
-      config: nextConfig.providers?.[provider] || null,
-    });
-  } catch (err) {
-    console.error("[smart-home/provider-config] error:", err);
-    return res.status(500).json({ error: String(err) });
-  }
-});
-
-app.post("/device/:slug/smart-home/providers/:provider/sync", async (req, res) => {
-  try {
-    const slug = normalizeSlug(req.params.slug);
-    const provider = String(req.params.provider || "").toLowerCase();
-    const device = await getUserPlanBySlug(slug);
-
-    if (provider !== "tuya") {
-      return res.status(400).json({ error: `Unsupported provider: ${provider}` });
-    }
-
-    const result = await syncTuyaDevicesForDevice(device);
-    return res.json({
-      ok: true,
-      ...result,
-    });
-  } catch (err) {
-    console.error("[smart-home/provider-sync] error:", err);
-
-    try {
-      const slug = normalizeSlug(req.params.slug);
-      const device = await getUserPlanBySlug(slug);
-      const { smartHomeConfig } = getSmartHomeState(device);
-      const provider = String(req.params.provider || "").toLowerCase();
-      const nextConfig = normalizeSmartHomeConfig({
-        ...smartHomeConfig,
-        providers: {
-          ...smartHomeConfig.providers,
-          [provider]: {
-            ...(smartHomeConfig.providers?.[provider] || {}),
-            lastError: String(err.message || err),
-          },
-        },
-      });
-      await persistSmartHomeState(device, { smartHomeConfig: nextConfig });
-    } catch {}
-
-    return res.status(500).json({ error: String(err.message || err) });
-  }
-});
-
-app.post("/device/:slug/smart-home/control", async (req, res) => {
-  try {
-    const slug = normalizeSlug(req.params.slug);
-    const { id, action = "toggle", payload = {} } = req.body || {};
-    if (!id) {
-      return res.status(400).json({ error: "Missing smart device id." });
-    }
-
-    const device = await getUserPlanBySlug(slug);
-    const result = await controlCloudSmartDevice(device, id, String(action).toLowerCase(), payload);
-    return res.json({
-      ok: true,
-      ...result,
-    });
-  } catch (err) {
-    console.error("[smart-home/control] error:", err);
-    return res.status(500).json({ error: String(err.message || err) });
   }
 });
 
@@ -1308,7 +950,7 @@ app.get("/device/:slug/alarms", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     console.log(`[Alarms Fetch] Fetching alarms for device slug: ${slug}`);
-    
+
     const device = await getUserPlanBySlug(slug);
     if (!device) {
       console.warn(`[Alarms Fetch] Device not found for slug: ${slug}`);
@@ -1327,7 +969,7 @@ app.get("/device/:slug/alarms", async (req, res) => {
 
     const alarms = result.documents.map(d => ({
       ...d,
-      id: d.$id, 
+      id: d.$id,
       label: d.for || d.label || "Alarm",
       days: typeof d.days === 'string' ? JSON.parse(d.days || "[]") : (d.days || [])
     }));
@@ -1335,14 +977,14 @@ app.get("/device/:slug/alarms", async (req, res) => {
   } catch (err) {
     console.error(`[Alarms Fetch Error]`, err);
     if (err.code === 404) {
-       console.error(`[Alarms Fetch Error] Collection 'alarms' not found! Check your Appwrite Collection ID settings.`);
-       return res.json([]);
+      console.error(`[Alarms Fetch Error] Collection 'alarms' not found! Check your Appwrite Collection ID settings.`);
+      return res.json([]);
     }
     // Return the specific error message to help the user debug "Application Error"
-    res.status(500).json({ 
-      error: "server_error", 
-      message: err.message, 
-      code: err.code 
+    res.status(500).json({
+      error: "server_error",
+      message: err.message,
+      code: err.code
     });
   }
 });
@@ -1386,7 +1028,7 @@ app.post("/device/:slug/sync_alarms", async (req, res) => {
       for (const doc of old.documents) {
         await db.deleteDocument(process.env.APPWRITE_DB_ID, "alarms", doc.$id);
       }
-    } catch(e) {}
+    } catch (e) { }
 
     // Insert new alarms
     if (Array.isArray(alarms)) {
@@ -1421,7 +1063,7 @@ app.post("/device/:slug/sync_schedules", async (req, res) => {
       for (const doc of old.documents) {
         await db.deleteDocument(process.env.APPWRITE_DB_ID, "schedules", doc.$id);
       }
-    } catch(e) {}
+    } catch (e) { }
 
     // Insert new schedules
     if (Array.isArray(schedules)) {
@@ -1449,7 +1091,7 @@ app.get("/device/:slug/files", async (req, res) => {
     const slug = normalizeSlug(req.params.slug);
     const files = await listFilesFromSlug(slug);
     const filtered = files.filter(f => !['chat.txt', 'limit.txt', 'welcome.txt'].includes(f.name.toLowerCase()));
-    
+
     // Add dynamic streaming URL for the frontend
     const mapped = filtered.map(f => ({
       ...f,
@@ -1498,45 +1140,14 @@ app.delete("/device/:slug/file/:filename", async (req, res) => {
   }
 });
 
-// ---------------- DEVICE UPDATE STATUS (BUSY/DOWNLOAD + SMART DEVICES FROM HUB) ----------------
+// ---------------- DEVICE UPDATE STATUS (BUSY/DOWNLOAD) ----------------
 app.post("/device/:slug/update-status", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
-    const { busyState, downloadProgress, smart_devices } = req.body;
+    const { busyState, downloadProgress } = req.body;
 
-    if (busyState) {
-      deviceBusyState.set(slug, busyState);
-      deviceBusyStateAt.set(slug, Date.now());
-      if (busyState !== "idle") {
-        deviceLastActiveBusyState.set(slug, busyState);
-        deviceLastActiveBusyStateAt.set(slug, Date.now());
-      }
-    }
-    if (downloadProgress !== undefined) {
-      deviceDownloadProgress.set(slug, downloadProgress);
-      deviceDownloadProgressAt.set(slug, Date.now());
-      if (downloadProgress !== null) {
-        deviceLastDownloadProgress.set(slug, downloadProgress);
-        deviceLastDownloadProgressAt.set(slug, Date.now());
-      }
-    }
-
-    // Pi network scan posts discovered bulbs so the mobile app can see them (same field as /settings).
-    if (smart_devices !== undefined && Array.isArray(smart_devices)) {
-      try {
-        const device = await getUserPlanBySlug(slug);
-        if (device) {
-          await db.updateDocument(
-            process.env.APPWRITE_DB_ID,
-            process.env.APPWRITE_DEVICES_COLLECTION,
-            device.$id,
-            { smart_devices: JSON.stringify(smart_devices) }
-          );
-        }
-      } catch (dbErr) {
-        console.error("[update-status] smart_devices persist failed:", dbErr);
-      }
-    }
+    if (busyState) deviceBusyState.set(slug, busyState);
+    if (downloadProgress !== undefined) deviceDownloadProgress.set(slug, downloadProgress);
 
     return res.json({ ok: true });
   } catch (err) {
@@ -1599,8 +1210,8 @@ app.get("/device/:slug/maintenance", async (req, res) => {
 
     console.log(`[Maintenance] Completed for ${slug}. Storage: ${storageInfo.usedMB.toFixed(2)}MB, Tier: ${tierName}`);
 
-    return res.json({ 
-      ok: true, 
+    return res.json({
+      ok: true,
       message: "Maintenance complete",
       storage: storageInfo,
       shoom: "⚡"
@@ -1753,7 +1364,7 @@ app.post("/device/:slug/command", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const { command_type, payload } = req.body;
-    
+
     console.log(`[Command Uplink] Received ${command_type} for slug: ${slug}`);
     console.log("[Command Uplink] Body:", JSON.stringify(req.body));
 
@@ -1770,7 +1381,7 @@ app.post("/device/:slug/command", async (req, res) => {
 
     // Validate device exists
     console.log(`[Command Uplink] Verifying device exists. DB: ${process.env.APPWRITE_DB_ID}, Collection: ${process.env.APPWRITE_DEVICES_COLLECTION || 'devices'}, Slug: ${slug}`);
-    
+
     let deviceDoc;
     try {
       deviceDoc = await db.listDocuments(
@@ -1801,7 +1412,7 @@ app.post("/device/:slug/command", async (req, res) => {
           sound: String(payload.sound || "default"),
           for: String(payload.label || "Alarm")
         });
-      } 
+      }
       else if (command_type === "delete_alarm") {
         // Appwrite delete requires Document ID. But payload might only have alarm_id.
         // We must query and delete.
@@ -1812,7 +1423,7 @@ app.post("/device/:slug/command", async (req, res) => {
               await db.deleteDocument(process.env.APPWRITE_DB_ID, "alarms", doc.$id);
             }
           }
-        } catch(e) {}
+        } catch (e) { }
       }
       else if (command_type === "set_schedule") {
         await db.createDocument(process.env.APPWRITE_DB_ID, "schedules", ID.unique(), {
@@ -1832,7 +1443,7 @@ app.post("/device/:slug/command", async (req, res) => {
               await db.deleteDocument(process.env.APPWRITE_DB_ID, "schedules", doc.$id);
             }
           }
-        } catch(e) {}
+        } catch (e) { }
       }
     } catch (syncErr) {
       console.error("[Command Uplink] Failed to auto-sync alarm/schedule to Appwrite:", syncErr);
@@ -1851,7 +1462,7 @@ app.post("/device/:slug/command", async (req, res) => {
 
     const collectionId = process.env.APPWRITE_COMMANDS_COLLECTION || "commands";
     console.log(`[Command Uplink] Creating document in collection: ${collectionId}`);
-    
+
     let command;
     try {
       command = await db.createDocument(
@@ -1863,11 +1474,11 @@ app.post("/device/:slug/command", async (req, res) => {
     } catch (createErr) {
       console.error("[Command Uplink] Appwrite createDocument failed:", createErr.message);
       if (createErr.response) console.error("[Command Uplink] Full Response:", JSON.stringify(createErr.response));
-      
+
       // If the error is about "commandType", maybe try a different attribute name or log it clearly
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: `Failed to create command: ${createErr.message}`,
-        details: createErr.response 
+        details: createErr.response
       });
     }
 
@@ -2011,67 +1622,19 @@ app.get("/web/auth/me", async (req, res) => {
 
 app.get("/web/profile/:userId", async (req, res) => {
   const { userId } = req.params;
-  const email = String(req.query.email || "").trim();
   try {
-    const [waitlistRows, ordersReq, preordersReq, subscriptionsReq, devicesTrialReq] = await Promise.all([
-      listWaitlistEntries({ userId, email }).catch(() => []),
+    const [waitlistReq, ordersReq, preordersReq, subscriptionsReq] = await Promise.all([
+      db.listDocuments(process.env.APPWRITE_DB_ID, "waitlist", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(50)]).catch(() => ({ documents: [] })),
       db.listDocuments(process.env.APPWRITE_DB_ID, "order", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
       db.listDocuments(process.env.APPWRITE_DB_ID, "preorder", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(25)]).catch(() => ({ documents: [] })),
-      db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)]).catch(() => ({ documents: [] })),
-      db
-        .listDocuments(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, [Query.limit(250)])
-        .catch(() => ({ documents: [] }))
+      db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)]).catch(() => ({ documents: [] }))
     ]);
 
-    const trials = (devicesTrialReq.documents || [])
-      .map((d) => {
-    const wakeWordsBlob = parseWakeWordsBlob(d.wakeWords);
-    const meta = wakeWordsBlob.meta || {};
-    if (meta.trialLinkedUserId !== userId) return null;
-    return {
-      deviceSlug: d.slug,
-      trialEnd: d.trialEnd || null,
-      trialUsed: d.trialUsed,
-      linkedAt: meta.trialLinkedAt || null
-    };
-  })
-  .filter(Boolean);
-
-    const devices = (devicesTrialReq.documents || [])
-      .map((d) => {
-        const wakeWordsBlob = parseWakeWordsBlob(d.wakeWords);
-        const meta = wakeWordsBlob.meta || {};
-        const linked = meta.linkedAccount || {};
-        const linkedUserId = String(linked.userId || meta.trialLinkedUserId || d.googleUserId || d.userId || "").trim();
-        const linkedEmail = String(linked.email || d.email || "").trim();
-        const matchesUser = linkedUserId && linkedUserId === userId;
-        const matchesEmail = email && linkedEmail && linkedEmail === email;
-        const matchesTrial = meta.trialLinkedUserId && meta.trialLinkedUserId === userId;
-
-        if (!matchesUser && !matchesEmail && !matchesTrial) return null;
-
-        return {
-          slug: d.slug,
-          name: d.name_of_device || d.name || `Device ${d.slug}`,
-          email: linkedEmail,
-          userId: linkedUserId || userId,
-          status: d.status || "online",
-          subscription: d.subscription || "false",
-          tier: d["subscription-tier"] ?? 0,
-          trialEnd: d.trialEnd || null,
-          linkedAt: linked.linkedAt || meta.trialLinkedAt || d.$createdAt || d.$updatedAt || null,
-          storageUsing: d.storageUsing || "supabase",
-        };
-      })
-      .filter(Boolean);
-
     return res.json({
-      waitlist: waitlistRows,
+      waitlist: waitlistReq.documents,
       orders: ordersReq.documents,
       preorders: preordersReq.documents,
-      subscriptions: subscriptionsReq.documents,
-      trials,
-      devices
+      subscriptions: subscriptionsReq.documents
     });
   } catch (err) {
     console.error("PROFILE ERROR:", err);
@@ -2085,25 +1648,44 @@ app.post("/web/auth/logout", (req, res) => {
 
 app.post("/web/waitlist", async (req, res) => {
   try {
-    const result = await upsertWaitlistEntry(req.body || {});
-    return res.json(result);
+    const {
+      name, email, phone, country,
+      product, productKey, userId,
+      paymentIntent, notes, featureDemand,
+      source, slug
+    } = req.body;
+
+    if (!email) return res.status(400).json({ error: "Email required" });
+
+    // Map featureDemand to notes if notes is missing (compat)
+    const finalNotes = notes || featureDemand || "";
+
+    // Store in Appwrite
+    const waitlistData = {
+      name: name || "Anonymous",
+      email,
+      phone: phone || "",
+      country: country || "India",
+      product: product || "Rexycore",
+      productKey: productKey || "rexycore",
+      userId: userId || "anonymous",
+      paymentIntent: paymentIntent || "Maybe",
+      notes: finalNotes,
+      source: source || "web",
+      createdAt: new Date().toISOString()
+    };
+
+    await db.createDocument(
+      process.env.APPWRITE_DB_ID,
+      "waitlist",
+      ID.unique(),
+      waitlistData
+    );
+
+    return res.json({ ok: true, message: "Welcome to the future of AI Home Control! 🚀" });
   } catch (err) {
     console.error("WAITLIST ERROR:", err);
-    return res.status(500).json({ error: String(err.message || err) });
-  }
-});
-
-app.get("/web/waitlist/status", async (req, res) => {
-  try {
-    const result = await getWaitlistStatus({
-      userId: req.query.userId || "",
-      email: req.query.email || "",
-      productKey: req.query.productKey || "",
-    });
-    return res.json(result);
-  } catch (err) {
-    console.error("WAITLIST STATUS ERROR:", err);
-    return res.status(500).json({ error: String(err.message || err) });
+    return res.status(500).json({ error: String(err) });
   }
 });
 
@@ -2193,17 +1775,8 @@ app.post("/web/preorder", async (req, res) => {
 
 app.post("/waitlist", (req, res) => {
   // Simple redirect/alias to the web version for compatibility
-  return app._router.handle(req, res, () => {});
+  return app._router.handle(req, res, () => { });
 });
-
-/** Fixed early-access caps (price lock). Trial = device activations; others = waitlist rows by productKey. */
-const PRICE_LOCK_CAPS = {
-  trial: 100,
-  student: 100,
-  creator: 50,
-  pro: 25,
-  studio: 5
-};
 
 app.get("/web/waitlist/stats", async (req, res) => {
   try {
@@ -2226,172 +1799,87 @@ app.get("/web/waitlist/stats", async (req, res) => {
   }
 });
 
-/** Remaining slots per tier for price-lock UI */
-app.get("/web/waitlist/slots", async (req, res) => {
-  try {
-    const caps = { ...PRICE_LOCK_CAPS };
-
-    const countWaitlistByKey = async (productKey) => {
-      try {
-        const r = await db.listDocuments(
-          process.env.APPWRITE_DB_ID,
-          "waitlist",
-          [Query.equal("productKey", productKey), Query.limit(1)]
-        );
-        return r.total;
-      } catch (e) {
-        console.warn("[waitlist/slots] count for", productKey, e.message);
-        return 0;
-      }
-    };
-
-    let trialUsedDevices = 0;
-    try {
-      const devList = await db.listDocuments(
-        process.env.APPWRITE_DB_ID,
-        process.env.APPWRITE_DEVICES_COLLECTION,
-        [Query.equal("trialUsed", "true"), Query.limit(1)]
-      );
-      trialUsedDevices = devList.total;
-    } catch (e) {
-      console.warn("[waitlist/slots] device trial count:", e.message);
-    }
-
-    const used = {
-      trial: trialUsedDevices,
-      student: await countWaitlistByKey("student"),
-      creator: await countWaitlistByKey("creator"),
-      pro: await countWaitlistByKey("pro"),
-      studio: await countWaitlistByKey("studio")
-    };
-
-    const remaining = {};
-    for (const k of Object.keys(caps)) {
-      remaining[k] = Math.max(0, caps[k] - (used[k] || 0));
-    }
-
-    return res.json({
-      caps,
-      used,
-      remaining,
-      totalSignups: Object.values(used).reduce((a, b) => a + b, 0)
-    });
-  } catch (err) {
-    console.error("WAITLIST SLOTS ERROR:", err);
-    return res.status(500).json({ error: String(err) });
-  }
-});
-
 app.get("/waitlist/stats", (req, res) => {
-  return app._router.handle(req, res, () => {});
+  return app._router.handle(req, res, () => { });
 });
 
-// 🚀 START TRIAL (Device-based tracking + hardware-bound secret in wakeWords metadata)
+// 🚀 START TRIAL (Device-based tracking)
 app.post("/device/:slug/trial", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
     const device = await getUserPlanBySlug(slug);
 
-    let trialDevicesTotal = 0;
-    try {
-      const tr = await db.listDocuments(
-        process.env.APPWRITE_DB_ID,
-        process.env.APPWRITE_DEVICES_COLLECTION,
-        [Query.equal("trialUsed", "true"), Query.limit(1)]
-      );
-      trialDevicesTotal = tr.total;
-    } catch (e) {
-      console.warn("[trial] count devices:", e.message);
-    }
-    if (
-      trialDevicesTotal >= PRICE_LOCK_CAPS.trial &&
-      device.trialUsed !== "true" &&
-      device.trialUsed !== true
-    ) {
-      return res.status(400).json({
-        error: "trial_slots_full",
-        message: "All trial price-lock slots are claimed. Join a paid tier waitlist."
-      });
-    }
-
+    // We now allow "More Trials" - let's say up to 3 trials or if the user asks
+    // For now, let's just make it easier to restart a trial if it's been more than 30 days
     const now = new Date();
-    const prevEnd = device.trialEnd ? new Date(device.trialEnd) : null;
-
-    if (prevEnd && prevEnd > now) {
-      return res.status(400).json({
-        error: "trial_already_active",
-        message: "Trial is already active on this device.",
-        trialEnd: device.trialEnd
-      });
-    }
-
-    const canRestartTrial =
-      !prevEnd || now - prevEnd > 30 * 24 * 60 * 60 * 1000;
+    const trialEnd = device.trialEnd ? new Date(device.trialEnd) : null;
+    const canRestartTrial = !trialEnd || (now - trialEnd > 30 * 24 * 60 * 60 * 1000);
 
     if (device.trialUsed === "true" && !canRestartTrial) {
-      return res.status(400).json({
-        error: "trial_cooldown",
-        message: "Trial already used on this device. Wait 30 days after expiry or join the waitlist."
-      });
-    }
-
-    const wakeWordsBlob = parseWakeWordsBlob(device.wakeWords);
-    if (!wakeWordsBlob.meta.trialSecret) {
-      wakeWordsBlob.meta.trialSecret = crypto.randomBytes(32).toString("hex");
-    }
-    wakeWordsBlob.meta.trialStartedAt = now.toISOString();
-    const body = req.body && typeof req.body === "object" ? req.body : {};
-    const linkUserId =
-      typeof body.userId === "string" && body.userId.length > 0
-        ? body.userId
-        : typeof body.appwriteUserId === "string"
-          ? body.appwriteUserId
-          : null;
-    if (linkUserId) {
-      wakeWordsBlob.meta.trialLinkedUserId = linkUserId;
-      wakeWordsBlob.meta.trialLinkedAt = now.toISOString();
+      return res.status(400).json({ error: "Trial already used recently. Please join the waitlist or wait 30 days." });
     }
 
     const trialDays = 7;
     const newTrialEnd = new Date();
     newTrialEnd.setDate(newTrialEnd.getDate() + trialDays);
 
-    await updateDeviceDocumentWithRetry(device.$id, {
-      subscription: "true",
-      "subscription-tier": 1,
-      trialUsed: "true",
-      trialEnd: newTrialEnd.toISOString(),
-      wakeWords: JSON.stringify(wakeWordsBlob)
-    });
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      {
+        subscription: "true",
+        "subscription-tier": 1, // Student tier for trial
+        trialUsed: "true",
+        trialEnd: newTrialEnd.toISOString()
+      }
+    );
 
-    return res.json({
-      ok: true,
-      message: `7-Day Free Trial Started! Ends on ${newTrialEnd.toDateString()}`,
-      trialEnd: newTrialEnd.toISOString()
-    });
+    return res.json({ ok: true, message: `7-Day Free Trial Started! Ends on ${newTrialEnd.toDateString()}` });
   } catch (err) {
     console.error("TRIAL START ERROR:", err);
     return res.status(500).json({ error: String(err) });
   }
 });
 
+// ---------------- REAL-TIME COMMAND RELAY (HUB -> DESKTOP) ----------------
+const desktopConnections = new Map(); // slug -> response object
+
 app.get("/device/:slug/desktop-relay", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
-  openDesktopRelayConnection(slug, req, res);
+
+  // SSE (Server-Sent Events) setup for real-time relay
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  console.log(`[Relay] Desktop Agent connected for slug: ${slug}`);
+  desktopConnections.set(slug, res);
+
+  // Keep connection alive with heartbeats
+  const keepAlive = setInterval(() => {
+    res.write(': keep-alive\n\n');
+  }, 30000);
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    desktopConnections.delete(slug);
+    console.log(`[Relay] Desktop Agent disconnected for slug: ${slug}`);
+  });
 });
 
 app.post("/device/:slug/to-desktop", async (req, res) => {
   const slug = normalizeSlug(req.params.slug);
-  if (!isAuthorizedDesktopRelayRequest(req)) {
-    return res.status(403).json({ error: "Unauthorized desktop relay request" });
-  }
+  const command = req.body; // { intent, parameters }
 
-  const result = relayDesktopCommand(slug, req.body || {});
-  if (!result.ok) {
-    return res.status(result.status).json({ error: result.error });
+  const desktopRes = desktopConnections.get(slug);
+  if (desktopRes) {
+    console.log(`[Relay] Sending command to desktop ${slug}:`, command);
+    desktopRes.write(`data: ${JSON.stringify(command)}\n\n`);
+    return res.json({ ok: true, message: "Relayed to desktop" });
+  } else {
+    return res.status(404).json({ error: "Desktop agent not connected for this slug" });
   }
-
-  return res.json({ ok: true, message: result.message });
 });
 
 // ---------------- START SERVER ----------------
