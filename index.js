@@ -1166,6 +1166,20 @@ app.post("/device/:slug/settings", async (req, res) => {
   }
 });
 
+app.get("/device/:slug/settings", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "device_not_found" });
+
+    // Send the raw Appwrite document so the Pi parses it exactly as before
+    return res.json({ documents: [device] });
+  } catch (err) {
+    console.error("[Settings] GET error:", err);
+    return res.status(500).json({ error: "server_error" });
+  }
+});
+
 app.get("/device/:slug/smart-home/state", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
