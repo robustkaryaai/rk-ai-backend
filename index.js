@@ -10,6 +10,7 @@ import { callGemini, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
 import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./services/supabaseClient.js";
 import { HfInference } from "@huggingface/inference";
+import ytSearch from "yt-search";
 
 dotenv.config();
 
@@ -210,6 +211,35 @@ const normalizeSlug = (slug) => {
   const s = String(slug);
   return s.padStart(9, '0');
 };
+
+async function resolveNextMusicLink(seedText = "") {
+  const seed = String(seedText || "").trim();
+  if (!seed) return null;
+
+  let suggestion = "";
+  try {
+    suggestion = await callGemini(
+      "You suggest one related song title only. Return only the song title and artist, no prose.",
+      [],
+      `The user is listening to: "${seed}". Suggest one related next song.`
+    );
+    suggestion = String(suggestion || "").trim().replace(/^["'`]+|["'`]+$/g, "");
+  } catch (err) {
+    console.log(`[Music-Resolve] Gemini suggestion failed, falling back to direct search: ${err?.message || err}`);
+  }
+
+  const query = suggestion || seed;
+  const search = await ytSearch(query);
+  const video = search?.videos?.[0];
+  if (!video) return null;
+
+  return {
+    title: video.title,
+    vid_id: video.videoId,
+    link: video.url,
+    query,
+  };
+}
 
 app.get("/device/:slug/status", async (req, res) => {
   const rawSlug = req.params.slug;
@@ -1152,6 +1182,33 @@ app.post("/device/:slug/update-status", async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+app.post("/device/:slug/music/recommend", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const seedText = String(req.body?.current_title || req.body?.current_query || "").trim();
+
+    if (!seedText) {
+      return res.status(400).json({ error: "current_title required" });
+    }
+
+    deviceLastSeen.set(slug, Date.now());
+    const resolved = await resolveNextMusicLink(seedText);
+
+    if (!resolved) {
+      return res.status(404).json({ error: "no_music_match" });
+    }
+
+    return res.json({
+      ok: true,
+      slug,
+      ...resolved
+    });
+  } catch (err) {
+    console.error("[Music-Resolve] Failed:", err);
+    return res.status(500).json({ error: "music_recommend_failed", message: String(err) });
   }
 });
 app.post("/device/ensure/:slug", async (req, res) => {
