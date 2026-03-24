@@ -310,23 +310,12 @@ function mergeWakeWordsBlob(raw, patch = {}) {
 }
 
 async function updateDeviceDocumentWithRetry(deviceId, updateData) {
-  const sanitizedUpdateData = { ...(updateData || {}) };
-
-  try {
-    return await db.updateDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      deviceId,
-      sanitizedUpdateData
-    );
-  } catch (err) {
-    return await db.updateDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      deviceId,
-      sanitizedUpdateData
-    );
-  }
+  return await db.updateDocument(
+    process.env.APPWRITE_DB_ID,
+    process.env.APPWRITE_DEVICES_COLLECTION,
+    deviceId,
+    updateData
+  );
 }
 
 function sanitizeSttLogs(logs) {
@@ -357,12 +346,7 @@ async function writePersistedSttLogs(slug, logs) {
   const wakeWordsBlob = mergeWakeWordsBlob(device.wakeWords, {
     meta: { sttLogs: nextLogs }
   });
-  await db.updateDocument(
-    process.env.APPWRITE_DB_ID,
-    process.env.APPWRITE_DEVICES_COLLECTION,
-    device.$id,
-    { wakeWords: JSON.stringify(wakeWordsBlob) }
-  );
+  await updateDeviceDocumentWithRetry(device.$id, { wakeWords: JSON.stringify(wakeWordsBlob) });
   return nextLogs;
 }
 
