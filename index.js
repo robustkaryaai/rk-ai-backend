@@ -884,6 +884,32 @@ app.get("/auth/spotify/callback", async (req, res) => {
   }
 });
 
+function parseJsonSafely(value, fallback = null) {
+  if (value == null) return fallback;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function parseWakeWordsDocument(rawValue) {
+  const parsed = parseJsonSafely(rawValue, null);
+  if (Array.isArray(parsed)) {
+    return { words: parsed, meta: {} };
+  }
+  if (parsed && typeof parsed === "object") {
+    return {
+      words: Array.isArray(parsed.words)
+        ? parsed.words
+        : (Array.isArray(parsed.wakeWords) ? parsed.wakeWords : []),
+      meta: parsed.meta && typeof parsed.meta === "object" ? parsed.meta : {},
+    };
+  }
+  return { words: [], meta: {} };
+}
+
 
 // ---------------- DEVICE SETTINGS ----------------
 app.post("/device/:slug/settings", async (req, res) => {
@@ -897,19 +923,37 @@ app.post("/device/:slug/settings", async (req, res) => {
     if (!device) return res.status(404).json({ error: "device_not_found" });
 
     const updateData = { ...settings };
+    const wakeWordsBlob = parseWakeWordsDocument(device.wakeWords);
+    let wakeWordsChanged = false;
 
-    // Safely pack unmapped UI configs into systemStatus so Appwrite doesn't crash on missing schema attributes
+    // Safely pack nested UI configs into string-backed Appwrite fields and wakeWords meta.
     let currentConfig = {};
     try { currentConfig = JSON.parse(device.systemStatus || "{}"); } catch (e) { }
 
     let configUpdated = false;
     if (settings.nightProtocolEnabled !== undefined) {
       currentConfig.nightProtocolEnabled = settings.nightProtocolEnabled;
+      wakeWordsBlob.meta.nightProtocolEnabled = settings.nightProtocolEnabled;
       delete updateData.nightProtocolEnabled; // Remove so Appwrite doesn't throw Attribute Error
       configUpdated = true;
+      wakeWordsChanged = true;
+    }
+
+    if (settings.ttsConfig !== undefined) {
+      const normalizedTtsConfig = parseJsonSafely(settings.ttsConfig, null);
+      if (normalizedTtsConfig && typeof normalizedTtsConfig === "object" && !Array.isArray(normalizedTtsConfig)) {
+        wakeWordsBlob.meta.ttsConfig = normalizedTtsConfig;
+        updateData.ttsConfig = JSON.stringify(normalizedTtsConfig);
+        wakeWordsChanged = true;
+      } else {
+        delete updateData.ttsConfig;
+      }
     }
     if (configUpdated) {
       updateData.systemStatus = JSON.stringify(currentConfig);
+    }
+    if (wakeWordsChanged) {
+      updateData.wakeWords = JSON.stringify(wakeWordsBlob);
     }
 
     // 🚀 If assistantName is updated, use Gemini to generate wake word variations
@@ -931,12 +975,14 @@ app.post("/device/:slug/settings", async (req, res) => {
           variations.unshift(settings.assistantName);
         }
 
-        updateData.wakeWords = JSON.stringify(variations);
+        wakeWordsBlob.words = variations;
+        updateData.wakeWords = JSON.stringify(wakeWordsBlob);
         console.log(`[Settings] Generated wake words:`, variations);
       } catch (err) {
         console.error(`[Settings] Failed to generate wake words:`, err);
         // Fallback to just the name
-        updateData.wakeWords = JSON.stringify([settings.assistantName]);
+        wakeWordsBlob.words = [settings.assistantName];
+        updateData.wakeWords = JSON.stringify(wakeWordsBlob);
       }
     }
 
@@ -950,7 +996,8 @@ app.post("/device/:slug/settings", async (req, res) => {
     return res.json({
       success: true,
       wakeWords: updateData.wakeWords ? JSON.parse(updateData.wakeWords) : null,
-      systemStatus: currentConfig
+      systemStatus: currentConfig,
+      ttsConfig: updateData.ttsConfig ? JSON.parse(updateData.ttsConfig) : null
     });
   } catch (err) {
     console.error(`[Settings] Error updating settings:`, err);
