@@ -35,7 +35,7 @@ export async function checkDeviceBySlug(slug) {
   return res.documents.length > 0;
 }
 
-export async function ensureDeviceBySlug(slug) {
+export async function ensureDeviceBySlug(slug, deviceType = "home") {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
@@ -43,6 +43,16 @@ export async function ensureDeviceBySlug(slug) {
   );
 
   if (res.documents.length > 0) {
+    // If device exists but doesn't have device_type, set it
+    const device = res.documents[0];
+    if (!device.device_type) {
+      await db.updateDocument(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION,
+        device.$id,
+        { device_type: deviceType }
+      );
+    }
     return { created: false };
   }
 
@@ -56,7 +66,8 @@ export async function ensureDeviceBySlug(slug) {
       "subscription-tier": 0,
       name_of_device: "RK AI",
       storage_limit_mb: 500,
-      storageUsing: "supabase"
+      storageUsing: "supabase",
+      device_type: deviceType
     }
   );
 

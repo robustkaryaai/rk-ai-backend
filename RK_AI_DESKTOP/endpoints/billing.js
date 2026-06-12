@@ -1,6 +1,6 @@
 import express from "express";
 import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
-import { getUserPlanBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
+import { getUserPlanBySlug, ensureDeviceBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { db } from "../../RK_AI_HOME/services/appwriteClient.js";
 
 const router = express.Router();
@@ -38,13 +38,16 @@ router.post("/upgrade", async (req, res) => {
 
     logInfo(`[Billing] Upgrade request for plan: ${plan} (slug: ${deviceSlug})`);
 
-    // Step 1: Get the device document from Appwrite
+    // Step 1: Ensure the device exists and is marked as desktop device
+    await ensureDeviceBySlug(deviceSlug, "desktop");
+
+    // Step 2: Get the device document from Appwrite
     const device = await getUserPlanBySlug(deviceSlug);
 
-    // Step 2: (PLACEHOLDER) Process Payment - Replace with actual Stripe/PayPal integration
+    // Step 3: (PLACEHOLDER) Process Payment - Replace with actual Stripe/PayPal integration
     logInfo(`[Billing] Processing payment (token: ${payment_token ? payment_token.slice(0, 8) + '...' : 'none'})`);
 
-    // Step 3: Update Appwrite User/Device Tier
+    // Step 4: Update Appwrite User/Device Tier + ensure device_type is "desktop"
     const tier = PLAN_TIER_MAP[plan];
     await db.updateDocument(
       process.env.APPWRITE_DB_ID,
@@ -52,13 +55,14 @@ router.post("/upgrade", async (req, res) => {
       device.$id,
       {
         subscription: plan !== "free" ? "true" : "false",
-        "subscription-tier": tier
+        "subscription-tier": tier,
+        device_type: "desktop"
       }
     );
 
     logInfo(`[Billing] Successfully upgraded slug ${deviceSlug} to ${plan} tier`);
 
-    // Step 4: Return success response with unlocked features
+    // Step 5: Return success response with unlocked features
     return res.json({
       ok: true,
       message: `Payment successful. Upgraded to ${plan.charAt(0).toUpperCase() + plan.slice(1)} tier.`,
