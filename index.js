@@ -22,6 +22,10 @@ const normalizeSlug = (slug) => {
   return s.padStart(9, '0');
 };
 
+// Simple in-memory LRU cache for device validation (to avoid hitting Appwrite every request)
+const deviceCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 // Device Validation Middleware (for Pi endpoints and most desktop endpoints)
 async function validateDevice(req, res, next) {
   // Skip middleware for auth endpoints + desktop health check
@@ -41,8 +45,25 @@ async function validateDevice(req, res, next) {
   
   const normalizedSlug = normalizeSlug(slug);
   
+  // Check cache first
+  const cachedEntry = deviceCache.get(normalizedSlug);
+  if (cachedEntry && Date.now() - cachedEntry.timestamp < CACHE_TTL) {
+    if (cachedEntry.valid) {
+      return next();
+    } else {
+      return res.status(404).json({ error: "Invalid or unregistered device" });
+    }
+  }
+  
   try {
     const exists = await checkDeviceBySlug(normalizedSlug);
+    
+    // Update cache
+    deviceCache.set(normalizedSlug, {
+      valid: exists,
+      timestamp: Date.now()
+    });
+    
     if (!exists) {
       return res.status(404).json({ error: "Invalid or unregistered device" });
     }
