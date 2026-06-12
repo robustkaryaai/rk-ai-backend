@@ -4,8 +4,8 @@ import { callGemini, listGeminiModels } from "../../RK_AI_HOME/services/gemini.j
 import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
 import { generateImage } from "../../RK_AI_HOME/modules/imageGenerator.js";
 import { generateVideo } from "../../RK_AI_HOME/modules/videoGenerator.js";
-import { generateDocx } from "../../RK_AI_HOME/modules/docxGenerator.js";
-import { generatePpt } from "../../RK_AI_HOME/modules/pptGenerator.js";
+import { createDocx } from "../../RK_AI_HOME/modules/docxGenerator.js";
+import { createPPT } from "../../RK_AI_HOME/modules/pptGenerator.js";
 import { getUserPlanBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { ensureLimitFile, getLimitsForTier } from "../../RK_AI_HOME/limitManager.js";
 import { cleanupSupabaseFiles } from "../../RK_AI_HOME/services/supabaseClient.js";
@@ -109,8 +109,7 @@ router.post("/generate/docx", async (req, res) => {
     }
 
     logInfo(`Desktop DOCX Generate: "${prompt}"`);
-    const { tier, limits, storageMB } = await getTierAndLimits(slug);
-    const result = await generateDocx(prompt, slug, tier, storageMB);
+    const result = await createDocx(prompt, slug);
     return res.json({ ok: true, ...result });
   } catch (err) {
     logError("Desktop DOCX Generate Error:", err);
@@ -127,8 +126,7 @@ router.post("/generate/ppt", async (req, res) => {
     }
 
     logInfo(`Desktop PPT Generate: "${prompt}"`);
-    const { tier, limits, storageMB } = await getTierAndLimits(slug);
-    const result = await generatePpt(prompt, slug, tier, storageMB);
+    const result = await createPPT(prompt, slug);
     return res.json({ ok: true, ...result });
   } catch (err) {
     logError("Desktop PPT Generate Error:", err);
