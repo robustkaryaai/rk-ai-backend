@@ -14,7 +14,7 @@ https://rk-ai-backend.onrender.com/rk-ai-desktop/
 ---
 
 ## **2. Authentication & Request Verification
-Every request to the `/rk-ai-desktop/` endpoints (except `/rk-ai-desktop/health) **MUST** include a device slug via **either:
+Every request to the `/rk-ai-desktop/` endpoints (except `/rk-ai-desktop/health`) **MUST** include a device slug via **either:
 ### Option A: URL Parameter
 (if the endpoint has a `:slug` param, use that)
 ### Option B: Custom HTTP Header (RECOMMENDED for most endpoints)
@@ -26,11 +26,11 @@ The backend will verify that the slug is registered in Appwrite's Devices collec
 
 ---
 
-## **3. Endpoint Documentation**
+## **3. Endpoint Documentation
 
 ---
 
-### **📌 A. /health**
+### **📌 A. /health
 #### `GET /rk-ai-desktop/health`
 Check if the desktop backend is alive! No auth needed!
 
@@ -45,10 +45,10 @@ Check if the desktop backend is alive! No auth needed!
 
 ---
 
-### **📌 B. AI Inference Endpoints**
+### **📌 B. AI Inference & Generation Endpoints
 
 #### `GET /rk-ai-desktop/ai/models`
-List all available AI models!
+List all available AI text models!
 
 **Headers:**
 ```http
@@ -59,14 +59,21 @@ X-Device-Slug: <your device slug>
 ```json
 {
   "ok": true,
-  "models": [ ... ]
+  "models": [
+    { "name": "gemini-3.1-flash-lite-preview", "displayName": "Gemini 3.1 Flash Lite (Default)" },
+    { "name": "gemini-2.5-flash", "displayName": "Gemini 2.5 Flash" },
+    { "name": "gemini-3-flash", "displayName": "Gemini 3 Flash" },
+    { "name": "gemma-3-27b", "displayName": "Gemma 3 27B" },
+    { "name": "gemma-3-12b", "displayName": "Gemma 3 12B" },
+    { "name": "gemma-3-4b", "displayName": "Gemma 3 4B" }
+  ]
 }
 ```
 
 ---
 
 #### `POST /rk-ai-desktop/ai/generate`
-Generate an AI response (streaming or JSON)
+Generate an AI text response (streaming or JSON)
 
 **Headers:**
 ```http
@@ -93,7 +100,115 @@ X-Device-Slug: <your device slug>
 
 ---
 
-### **📌 C. Search Endpoints**
+#### `POST /rk-ai-desktop/ai/generate/image`
+Generate an image using **DeAPI** (Flux1schnell model)
+
+**Headers:**
+```http
+Content-Type: application/json
+X-Device-Slug: <your device slug>
+```
+
+**Payload:**
+```json
+{
+  "prompt": "A cute robot in a garden",
+  "slug": "your device slug"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "image": "image_<unique id>.jpeg"
+}
+```
+
+---
+
+#### `POST /rk-ai-desktop/ai/generate/video`
+Generate a video
+
+**Headers:**
+```http
+Content-Type: application/json
+X-Device-Slug: <your device slug>
+```
+
+**Payload:**
+```json
+{
+  "prompt": "A cat chasing a laser pointer",
+  "slug": "your device slug"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "video": "video_<unique id>.mp4"
+}
+```
+
+---
+
+#### `POST /rk-ai-desktop/ai/generate/docx`
+Generate a Microsoft Word (.docx) document
+
+**Headers:**
+```http
+Content-Type: application/json
+X-Device-Slug: <your device slug>
+```
+
+**Payload:**
+```json
+{
+  "prompt": "Write a short story about a space explorer",
+  "slug": "your device slug"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "docx": "document_<unique id>.docx"
+}
+```
+
+---
+
+#### `POST /rk-ai-desktop/ai/generate/ppt`
+Generate a Microsoft PowerPoint (.pptx) presentation
+
+**Headers:**
+```http
+Content-Type: application/json
+X-Device-Slug: <your device slug>
+```
+
+**Payload:**
+```json
+{
+  "prompt": "Create a 5-slide presentation about climate change",
+  "slug": "your device slug"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "ppt": "presentation_<unique id>.pptx"
+}
+```
+
+---
+
+### **📌 C. Search Endpoints
 
 #### `POST /rk-ai-desktop/search/web`
 Search the web!
@@ -163,7 +278,7 @@ X-Device-Slug: <your device slug>
 
 ---
 
-### **📌 D. Knowledge Engine (RAG) Endpoints**
+### **📌 D. Knowledge Engine (RAG) Endpoints
 
 #### `POST /rk-ai-desktop/knowledge/upload`
 Upload a file to the knowledge base!
@@ -224,12 +339,12 @@ X-Device-Slug: <your device slug>
 
 ---
 
-### **📌 E. Auth & Integrations Endpoints**
+### **📌 E. Auth & Integrations Endpoints
 (placeholders for now - will be expanded!)
 
 ---
 
-## **4. backend_access Tool Format (for AI)**
+## **4. backend_access Tool Format (for AI)
 When your RK AI Desktop's AI should use this format to call the backend!
 
 ```json
@@ -247,7 +362,7 @@ When your RK AI Desktop's AI should use this format to call the backend!
 
 ---
 
-## **5. Example Usage (Python)**
+## **5. Example Usage (Python)
 Here's a quick Python example of how to send a request to the backend!
 
 ```python
@@ -268,3 +383,14 @@ response = requests.post(
 
 print(response.json())
 ```
+
+---
+
+## **6. List of AI Models & APIs Used
+1. **Text Generation (Google GenAI API):**
+   - Default: `gemini-3.1-flash-lite-preview`
+   - Also available: `gemini-2.5-flash`, `gemini-3-flash`, `gemma-3-27b`, `gemma-3-12b`, `gemma-3-4b`
+
+2. **Image Generation (DeAPI):**
+   - Model: `Flux1schnell`
+   - Base URL: https://api.deapi.ai

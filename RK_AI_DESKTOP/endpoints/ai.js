@@ -2,8 +2,24 @@
 import express from "express";
 import { callGemini, listGeminiModels } from "../../RK_AI_HOME/services/gemini.js";
 import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
+import { generateImage } from "../../RK_AI_HOME/modules/imageGenerator.js";
+import { generateVideo } from "../../RK_AI_HOME/modules/videoGenerator.js";
+import { generateDocx } from "../../RK_AI_HOME/modules/docxGenerator.js";
+import { generatePpt } from "../../RK_AI_HOME/modules/pptGenerator.js";
+import { getUserPlanBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
+import { ensureLimitFile, getLimitsForTier } from "../../RK_AI_HOME/limitManager.js";
+import { cleanupSupabaseFiles } from "../../RK_AI_HOME/services/supabaseClient.js";
 
 const router = express.Router();
+
+// Helper to get tier and limits for a slug
+async function getTierAndLimits(slug) {
+  const device = await getUserPlanBySlug(slug);
+  const tier = Number(device["subscription-tier"] || 0);
+  const limits = await ensureLimitFile(slug);
+  const storageMB = await cleanupSupabaseFiles(slug, getLimitsForTier(tier).storage);
+  return { tier, limits, storageMB };
+}
 
 // List available AI models
 router.get("/models", async (req, res) => {
@@ -16,7 +32,7 @@ router.get("/models", async (req, res) => {
   }
 });
 
-// Generate AI response (streaming or JSON)
+// Generate AI text response (streaming or JSON)
 router.post("/generate", async (req, res) => {
   try {
     const { prompt, model, stream = false } = req.body;
@@ -45,6 +61,78 @@ router.post("/generate", async (req, res) => {
   } catch (err) {
     logError("Desktop AI Generate Error:", err);
     return res.status(500).json({ ok: false, error: "AI generation failed" });
+  }
+});
+
+// Generate Image
+router.post("/generate/image", async (req, res) => {
+  try {
+    const { prompt, slug } = req.body;
+    if (!prompt || !slug) {
+      return res.status(400).json({ ok: false, error: "Prompt and slug required" });
+    }
+
+    logInfo(`Desktop Image Generate: "${prompt}"`);
+    const { tier, limits, storageMB } = await getTierAndLimits(slug);
+    const result = await generateImage(prompt, slug, tier, storageMB);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    logError("Desktop Image Generate Error:", err);
+    return res.status(500).json({ ok: false, error: "Image generation failed" });
+  }
+});
+
+// Generate Video
+router.post("/generate/video", async (req, res) => {
+  try {
+    const { prompt, slug } = req.body;
+    if (!prompt || !slug) {
+      return res.status(400).json({ ok: false, error: "Prompt and slug required" });
+    }
+
+    logInfo(`Desktop Video Generate: "${prompt}"`);
+    const { tier, limits, storageMB } = await getTierAndLimits(slug);
+    const result = await generateVideo(prompt, slug, tier, storageMB);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    logError("Desktop Video Generate Error:", err);
+    return res.status(500).json({ ok: false, error: "Video generation failed" });
+  }
+});
+
+// Generate Word Document (.docx)
+router.post("/generate/docx", async (req, res) => {
+  try {
+    const { prompt, slug } = req.body;
+    if (!prompt || !slug) {
+      return res.status(400).json({ ok: false, error: "Prompt and slug required" });
+    }
+
+    logInfo(`Desktop DOCX Generate: "${prompt}"`);
+    const { tier, limits, storageMB } = await getTierAndLimits(slug);
+    const result = await generateDocx(prompt, slug, tier, storageMB);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    logError("Desktop DOCX Generate Error:", err);
+    return res.status(500).json({ ok: false, error: "DOCX generation failed" });
+  }
+});
+
+// Generate PowerPoint Presentation (.pptx)
+router.post("/generate/ppt", async (req, res) => {
+  try {
+    const { prompt, slug } = req.body;
+    if (!prompt || !slug) {
+      return res.status(400).json({ ok: false, error: "Prompt and slug required" });
+    }
+
+    logInfo(`Desktop PPT Generate: "${prompt}"`);
+    const { tier, limits, storageMB } = await getTierAndLimits(slug);
+    const result = await generatePpt(prompt, slug, tier, storageMB);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    logError("Desktop PPT Generate Error:", err);
+    return res.status(500).json({ ok: false, error: "PPT generation failed" });
   }
 });
 
