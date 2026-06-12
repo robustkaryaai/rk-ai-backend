@@ -273,30 +273,9 @@ Endpoints under `/rk-ai-desktop/knowledge/`!
 ---
 
 ## 5. Billing & Upgrades
-Endpoints under `/rk-ai-desktop/billing/`!
+Endpoint under `/rk-ai-desktop/billing/`!
 
-### Step 1: Get Checkout Page URL
-**Endpoint:** `GET /rk-ai-desktop/billing/checkout`
-
-**Query Parameters:**
-- `slug`: Your 9-digit device slug (required!)
-- `plan`: "core" or "studio" (optional, default "studio")
-- `redirect_uri`: Your app's deep link to redirect back after payment (optional)
-
-**Response:**
-```javascript
-{
-  "ok": true,
-  "paymentUrl": "/rk-ai-desktop/payment.html?slug=123456789&plan=studio&redirect_uri=rk-ai://payment-success"
-}
-```
-
-### Step 2: Open Payment Page in Browser
-Open the `paymentUrl` from Step 1 in your desktop app's embedded browser or system default browser!
-
-### Step 3: Upgrade Subscription (Direct API Call, Optional)
-If you want to test the upgrade without the payment page, use this endpoint:
-
+### Upgrade Subscription
 **Endpoint:** `POST /rk-ai-desktop/billing/upgrade`
 
 **Payload:**
