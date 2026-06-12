@@ -394,3 +394,13 @@ print(response.json())
 2. **Image Generation (DeAPI):**
    - Model: `Flux1schnell`
    - Base URL: https://api.deapi.ai
+
+3. **Video Generation:**
+   - Default provider: **LTX Video API** (ltx.video)
+   - Default model: `ltx-2-3-pro`
+   - Default duration: 8s
+   - Default resolution: 1920x1080
+   - Fallback providers:
+     - Pixwith API (model 2-9)
+     - Hugging Face (Lightricks/LTX-Video)
+
