@@ -347,7 +347,32 @@ X-Device-Slug: <your device slug>
 
 ---
 
-### **📌 E. Auth & Integrations Endpoints
+### 📌 E. Billing & Subscription Endpoints
+#### `POST /rk-ai-desktop/billing/upgrade`
+Upgrade or change subscription tier!
+**Headers:**
+```http
+Content-Type: application/json
+X-Device-Slug: <device_slug>
+```
+**Payload:**
+```json
+{
+  "plan": "studio",           // "free", "core", or "studio"
+  "payment_token": "tok_xyz", // Payment gateway token (Stripe/PayPal)
+  "slug": "112175553"         // Optional (redundant check)
+}
+```
+**Response (Success):**
+```json
+{
+  "ok": true,
+  "message": "Payment successful. Upgraded to Studio tier.",
+  "unlocked_features": ["matrix_memory", "priority_queue", "custom_models"]
+}
+```
+
+### 📌 F. Auth & Integrations Endpoints
 (placeholders for now - will be expanded!)
 
 ---
