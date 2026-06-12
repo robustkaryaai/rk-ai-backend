@@ -1,11 +1,11 @@
-
 import express from "express";
-import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
 import ytSearch from "yt-search";
+import { search as ddgSearch } from "duck-duck-scrape";
+import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
 
 const router = express.Router();
 
-// Web search endpoint (placeholder - replace with your preferred scraper)
+// Web Search using DuckDuckGo
 router.post("/web", async (req, res) => {
   try {
     const { query } = req.body;
@@ -13,25 +13,27 @@ router.post("/web", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Query required" });
     }
 
-    logInfo(`Desktop Web Search: ${query}`);
+    logInfo(`Desktop Web Search: "${query}"`);
 
-    // Placeholder response for now! Replace with actual DuckDuckGo/Google scraping
-    const placeholderResults = [
-      {
-        title: `Search results for "${query}"`,
-        url: "https://example.com",
-        snippet: "This is a placeholder for your web search implementation."
-      }
-    ];
+    const searchResults = await ddgSearch(query, {
+      safeSearch: 0, // 0 = off, 1 = moderate, 2 = strict
+      locale: "en-us"
+    });
 
-    return res.json({ ok: true, results: placeholderResults });
+    const formattedResults = searchResults.results.slice(0, 10).map(result => ({
+      title: result.title,
+      url: result.url,
+      snippet: result.description
+    }));
+
+    return res.json({ ok: true, results: formattedResults });
   } catch (err) {
     logError("Desktop Web Search Error:", err);
     return res.status(500).json({ ok: false, error: "Web search failed" });
   }
 });
 
-// Media search endpoint (YouTube)
+// YouTube/Media Search
 router.post("/media", async (req, res) => {
   try {
     const { query, platform = "youtube" } = req.body;
@@ -39,22 +41,24 @@ router.post("/media", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Query required" });
     }
 
-    logInfo(`Desktop Media Search (${platform}): ${query}`);
-
-    if (platform === "youtube") {
-      const results = await ytSearch(query);
-      const simplifiedResults = results.videos.slice(0, 10).map(v => ({
-        title: v.title,
-        url: v.url,
-        thumbnail: v.thumbnail,
-        duration: v.duration.timestamp,
-        views: v.views
-      }));
-
-      return res.json({ ok: true, platform, results: simplifiedResults });
+    if (platform.toLowerCase() !== "youtube") {
+      return res.status(400).json({ ok: false, error: "Only YouTube is supported right now" });
     }
 
-    return res.status(400).json({ ok: false, error: `Platform ${platform} not supported yet` });
+    logInfo(`Desktop YouTube Search: "${query}"`);
+
+    const searchResults = await ytSearch(query);
+
+    const formattedResults = searchResults.videos.slice(0, 10).map(video => ({
+      title: video.title,
+      url: video.url,
+      thumbnail: video.thumbnail,
+      duration: video.duration.timestamp,
+      views: video.views.toString(),
+      author: video.author.name
+    }));
+
+    return res.json({ ok: true, platform, results: formattedResults });
   } catch (err) {
     logError("Desktop Media Search Error:", err);
     return res.status(500).json({ ok: false, error: "Media search failed" });
