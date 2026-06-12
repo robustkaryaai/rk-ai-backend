@@ -1,0 +1,24 @@
+{
+  "name": "rk-ai-backend",
+  "version": "3.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "@huggingface/inference": "^2.7.0",
+    "@google/genai": "^0.6.1",
+    "@supabase/supabase-js": "^2.39.0",
+    "docx": "^8.5.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.22.1",
+    "node-appwrite": "^21.0.0",
+    "uuid": "^9.0.1",
+    "yt-search": "^2.13.1"
+  },
+  "description": "Auto-generated backend project.",
+  "author": "",
+  "license": "ISC"
+}
