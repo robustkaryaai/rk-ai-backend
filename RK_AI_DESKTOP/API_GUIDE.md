@@ -1,5 +1,13 @@
+---
 
 # RK AI Backend Desktop API Guide
+## ⚡ Minimizing Response Latency
+For the fastest possible responses, we've optimized the backend with the following:
+1. **In-Memory Device Cache**: Validated devices are cached for 5 minutes to avoid repeated Appwrite calls
+2. **Streaming Responses**: Use `stream: true` in the `/ai/generate` endpoint to receive tokens as they're generated (minimizes perceived latency)
+3. **Lightweight Search**: DuckDuckGo and YouTube search use minimal, fast dependencies
+
+---
 
 This document explains exactly how the RK AI Desktop app should communicate with the backend.
 
