@@ -4,7 +4,7 @@ import { HfInference } from "@huggingface/inference";
 import ytSearch from "yt-search";
 
 import { logInfo, logError } from "./RK_AI_HOME/utils/logger.js";
-import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug, db, users } from "./RK_AI_HOME/services/appwriteClient.js";
+import { getUserPlanBySlug, checkDeviceBySlug, ensureDeviceBySlug, db, users, getSubscriptionStatus, updateSubscription } from "./RK_AI_HOME/services/appwriteClient.js";
 import { Query, ID } from "node-appwrite";
 import { loadChat, appendChat, appendUser, updateLastAI, deleteChatEntry } from "./RK_AI_HOME/memory.js";
 import { ensureLimitFile, getLimitsForTier } from "./RK_AI_HOME/limitManager.js";
@@ -419,6 +419,35 @@ app.get("/web/auth/google/start", (req, res) => {
     state: `web|${redirect}`
   });
   return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+// ---------------- SUBSCRIPTION ENDPOINTS ----------------
+// Get subscription status (for RK AI Home/Desktop)
+app.get("/subscription/:slug", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const status = await getSubscriptionStatus(slug);
+    return res.json({ ok: true, ...status });
+  } catch (err) {
+    logError("Get subscription status error:", err);
+    return res.status(500).json({ ok: false, error: "Failed to get subscription status" });
+  }
+});
+
+// Get subscription status via X-Device-Slug header
+app.get("/subscription", async (req, res) => {
+  const slug = req.headers["x-device-slug"];
+  if (!slug) {
+    return res.status(400).json({ ok: false, error: "X-Device-Slug header required" });
+  }
+  try {
+    const normalizedSlug = normalizeSlug(slug);
+    const status = await getSubscriptionStatus(normalizedSlug);
+    return res.json({ ok: true, ...status });
+  } catch (err) {
+    logError("Get subscription status error:", err);
+    return res.status(500).json({ ok: false, error: "Failed to get subscription status" });
+  }
 });
 
 // ---------------- RK AI DESKTOP ENDPOINTS ----------------

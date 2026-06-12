@@ -1,17 +1,11 @@
 import express from "express";
 import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
-import { getUserPlanBySlug, ensureDeviceBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
+import { getUserPlanBySlug, ensureDeviceBySlug, updateSubscription } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { db } from "../../RK_AI_HOME/services/appwriteClient.js";
 
 const router = express.Router();
 
 // Map plan strings to existing tier values in Appwrite
-const PLAN_TIER_MAP = {
-  free: 0,
-  core: 1,
-  studio: 2
-};
-
 const PLAN_FEATURES = {
   free: [],
   core: ["priority_queue"],
@@ -21,7 +15,7 @@ const PLAN_FEATURES = {
 // Billing Upgrade Endpoint
 router.post("/upgrade", async (req, res) => {
   try {
-    const { plan, payment_token, slug } = req.body;
+    const { plan, payment_token, slug, duration_days } = req.body;
     const deviceSlug = req.headers["x-device-slug"] || slug;
 
     if (!plan) {
@@ -32,7 +26,8 @@ router.post("/upgrade", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Device slug required" });
     }
 
-    if (!PLAN_TIER_MAP.hasOwnProperty(plan)) {
+    const validPlans = ["free", "core", "studio"];
+    if (!validPlans.includes(plan)) {
       return res.status(400).json({ ok: false, error: "Invalid plan" });
     }
 
@@ -41,24 +36,23 @@ router.post("/upgrade", async (req, res) => {
     // Step 1: Ensure the device exists and is marked as desktop device
     await ensureDeviceBySlug(deviceSlug, "desktop");
 
-    // Step 2: Get the device document from Appwrite
+    // Step 2: Get the device document from Appwrite to set device_type
     const device = await getUserPlanBySlug(deviceSlug);
+    if (device.device_type !== "desktop") {
+      await db.updateDocument(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION,
+        device.$id,
+        { device_type: "desktop" }
+      );
+    }
 
     // Step 3: (PLACEHOLDER) Process Payment - Replace with actual Stripe/PayPal integration
     logInfo(`[Billing] Processing payment (token: ${payment_token ? payment_token.slice(0, 8) + '...' : 'none'})`);
 
-    // Step 4: Update Appwrite User/Device Tier + ensure device_type is "desktop"
-    const tier = PLAN_TIER_MAP[plan];
-    await db.updateDocument(
-      process.env.APPWRITE_DB_ID,
-      process.env.APPWRITE_DEVICES_COLLECTION,
-      device.$id,
-      {
-        subscription: plan !== "free" ? "true" : "false",
-        "subscription-tier": tier,
-        device_type: "desktop"
-      }
-    );
+    // Step 4: Update subscription with expiry
+    const duration = duration_days || 30; // Default to 30 days
+    const updatedStatus = await updateSubscription(deviceSlug, plan, duration);
 
     logInfo(`[Billing] Successfully upgraded slug ${deviceSlug} to ${plan} tier`);
 
@@ -66,7 +60,8 @@ router.post("/upgrade", async (req, res) => {
     return res.json({
       ok: true,
       message: `Payment successful. Upgraded to ${plan.charAt(0).toUpperCase() + plan.slice(1)} tier.`,
-      unlocked_features: PLAN_FEATURES[plan]
+      unlocked_features: PLAN_FEATURES[plan],
+      subscription: updatedStatus
     });
 
   } catch (err) {

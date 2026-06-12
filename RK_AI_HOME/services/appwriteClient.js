@@ -67,9 +67,94 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
       name_of_device: "RK AI",
       storage_limit_mb: 500,
       storageUsing: "supabase",
-      device_type: deviceType
+      device_type: deviceType,
+      subscription_expires_at: null
     }
   );
 
   return { created: true };
+}
+
+// Get subscription status for a slug
+export async function getSubscriptionStatus(slug) {
+  const device = await getUserPlanBySlug(slug);
+  const now = new Date();
+  let status = "expired";
+
+  // Check if subscription is active
+  if (device.subscription === "true") {
+    // If there's an expiry date, check it
+    if (device.subscription_expires_at) {
+      const expiryDate = new Date(device.subscription_expires_at);
+      if (expiryDate > now) {
+        status = "active";
+      } else {
+        // Expired, reset subscription
+        await db.updateDocument(
+          process.env.APPWRITE_DB_ID,
+          process.env.APPWRITE_DEVICES_COLLECTION,
+          device.$id,
+          {
+            subscription: "false",
+            "subscription-tier": 0
+          }
+        );
+        status = "expired";
+      }
+    } else {
+      // No expiry date, assume active
+      status = "active";
+    }
+  } else {
+    status = "free";
+  }
+
+  // Calculate days left
+  let daysLeft = 0;
+  if (device.subscription_expires_at) {
+    const expiryDate = new Date(device.subscription_expires_at);
+    const diffMs = expiryDate - now;
+    daysLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+  } else if (device.subscription === "true") {
+    daysLeft = 9999; // No expiry set
+  }
+
+  // Map tier to plan name
+  const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio" };
+  const plan = tierMap[device["subscription-tier"]] || "free";
+
+  return {
+    status,
+    plan,
+    tier: device["subscription-tier"],
+    days_left: daysLeft,
+    expires_at: device.subscription_expires_at,
+    device_type: device.device_type || "home"
+  };
+}
+
+// Update subscription and set expiry
+export async function updateSubscription(slug, plan, durationDays = 30) {
+  const device = await getUserPlanBySlug(slug);
+  const tierMap = { "free": 0, "student": 1, "creator": 2, "pro": 3, "studio": 4 };
+  const tier = tierMap[plan] || 0;
+  const now = new Date();
+  let expiresAt = null;
+
+  if (plan !== "free") {
+    expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  await db.updateDocument(
+    process.env.APPWRITE_DB_ID,
+    process.env.APPWRITE_DEVICES_COLLECTION,
+    device.$id,
+    {
+      subscription: plan !== "free" ? "true" : "false",
+      "subscription-tier": tier,
+      subscription_expires_at: expiresAt
+    }
+  );
+
+  return getSubscriptionStatus(slug);
 }
