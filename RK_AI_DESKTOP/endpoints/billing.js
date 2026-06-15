@@ -1,42 +1,78 @@
 import express from "express";
 import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
-import { getUserPlanBySlug, ensureDeviceBySlug, updateSubscription } from "../../RK_AI_HOME/services/appwriteClient.js";
+import {
+  getUserPlanBySlug,
+  ensureDeviceBySlug,
+  updateSubscription,
+} from "../../RK_AI_HOME/services/appwriteClient.js";
 import { db } from "../../RK_AI_HOME/services/appwriteClient.js";
 
 const router = express.Router();
 
-// Map plan strings to existing tier values in Appwrite
-const PLAN_FEATURES = {
-  free: [],
-  core: ["priority_queue"],
-  studio: ["matrix_memory", "priority_queue", "custom_models"]
+/* ─────────────────────────────────────────────────────────────────
+   PLAN DEFINITIONS
+   Keep in sync with:
+     - frontend/setup.js  (desktop app)
+     - arkis/app/payment/page.js  (website)
+───────────────────────────────────────────────────────────────── */
+const PLANS = {
+  free: {
+    label: "Free",
+    features: [],
+    token_limit: 5000,
+    rpm_limit: 30,
+    duration_days_default: 36500, // "forever"
+  },
+  core: {
+    label: "Core",
+    features: ["cloud_models", "google_stt_tts", "online_search"],
+    token_limit: 20000,
+    rpm_limit: 120,
+    duration_days_default: 30,
+  },
+  studio: {
+    label: "Studio",
+    features: [
+      "cloud_models",
+      "google_stt_tts",
+      "online_search",
+      "rk_ai_autonomy",
+      "os_screen_control",
+      "autonomous_tasks",
+    ],
+    token_limit: 50000,
+    rpm_limit: 300,
+    duration_days_default: 30,
+  },
 };
 
-// Billing Upgrade Endpoint
+/* ─────────────────────────────────────────────────────────────────
+   POST /billing/upgrade
+   Body: { plan, payment_token, slug, duration_days? }
+   Headers: X-Device-Slug
+───────────────────────────────────────────────────────────────── */
 router.post("/upgrade", async (req, res) => {
   try {
     const { plan, payment_token, slug, duration_days } = req.body;
-    const deviceSlug = req.headers["x-device-slug"] || slug;
+    const deviceSlug = (req.headers["x-device-slug"] || slug || "").trim();
 
+    // ── Validation ──────────────────────────────────────────────
     if (!plan) {
       return res.status(400).json({ ok: false, error: "Plan is required" });
     }
-
     if (!deviceSlug) {
-      return res.status(400).json({ ok: false, error: "Device slug required" });
+      return res.status(400).json({ ok: false, error: "Device slug is required" });
+    }
+    if (!PLANS[plan]) {
+      return res.status(400).json({ ok: false, error: `Invalid plan. Valid options: ${Object.keys(PLANS).join(", ")}` });
     }
 
-    const validPlans = ["free", "core", "studio"];
-    if (!validPlans.includes(plan)) {
-      return res.status(400).json({ ok: false, error: "Invalid plan" });
-    }
+    logInfo(`[Billing] Upgrade request — plan: ${plan} | slug: ${deviceSlug}`);
 
-    logInfo(`[Billing] Upgrade request for plan: ${plan} (slug: ${deviceSlug})`);
-
-    // Step 1: Ensure the device exists and is marked as desktop device
+    // ── Step 1: Ensure device exists ─────────────────────────────
     await ensureDeviceBySlug(deviceSlug, "desktop");
 
-    // Step 2: Get the device document from Appwrite to set device_type
+    // ── Step 2: Ensure device is tagged as desktop ───────────────
     const device = await getUserPlanBySlug(deviceSlug);
     if (device.device_type !== "desktop") {
       await db.updateDocument(
@@ -47,26 +83,80 @@ router.post("/upgrade", async (req, res) => {
       );
     }
 
-    // Step 3: (PLACEHOLDER) Process Payment - Replace with actual Stripe/PayPal integration
-    logInfo(`[Billing] Processing payment (token: ${payment_token ? payment_token.slice(0, 8) + '...' : 'none'})`);
+    // ── Step 3: Payment processing ───────────────────────────────
+    // TODO: Replace this block with real Stripe charge:
+    //
+    //   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    //   const charge = await stripe.paymentIntents.create({
+    //     amount: plan === 'studio' ? 99900 : 49900,   // paise (₹)
+    //     currency: 'inr',
+    //     payment_method: payment_token,
+    //     confirm: true,
+    //   });
+    //   if (charge.status !== 'succeeded') throw new Error('Payment failed');
+    //
+    logInfo(`[Billing] Payment token received: ${payment_token ? payment_token.slice(0, 12) + "..." : "none (simulated)"}`);
 
-    // Step 4: Update subscription with expiry
-    const duration = duration_days || 30; // Default to 30 days
+    // ── Step 4: Update subscription in Appwrite ──────────────────
+    const planMeta = PLANS[plan];
+    const duration = duration_days || planMeta.duration_days_default;
     const updatedStatus = await updateSubscription(deviceSlug, plan, duration);
 
-    logInfo(`[Billing] Successfully upgraded slug ${deviceSlug} to ${plan} tier`);
+    logInfo(`[Billing] ✓ Upgraded ${deviceSlug} → ${plan} (${duration} days)`);
 
-    // Step 5: Return success response with unlocked features
+    // ── Step 5: Respond ──────────────────────────────────────────
     return res.json({
       ok: true,
-      message: `Payment successful. Upgraded to ${plan.charAt(0).toUpperCase() + plan.slice(1)} tier.`,
-      unlocked_features: PLAN_FEATURES[plan],
-      subscription: updatedStatus
+      message: `Successfully upgraded to ${planMeta.label} tier.`,
+      plan,
+      unlocked_features: planMeta.features,
+      limits: {
+        tokens_per_request: planMeta.token_limit,
+        requests_per_minute: planMeta.rpm_limit,
+      },
+      subscription: updatedStatus,
     });
 
   } catch (err) {
     logError("[Billing] Upgrade error:", err);
-    return res.status(500).json({ ok: false, error: "Failed to process upgrade" });
+    return res.status(500).json({ ok: false, error: "Failed to process upgrade. Please try again." });
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   GET /billing/status
+   Returns current plan and limits for a device
+───────────────────────────────────────────────────────────────── */
+router.get("/status", async (req, res) => {
+  try {
+    const deviceSlug = (req.headers["x-device-slug"] || req.query.slug || "").trim();
+
+    if (!deviceSlug) {
+      return res.status(400).json({ ok: false, error: "Device slug is required" });
+    }
+
+    const device = await getUserPlanBySlug(deviceSlug);
+    const plan = device.plan || "free";
+    const planMeta = PLANS[plan] || PLANS.free;
+
+    return res.json({
+      ok: true,
+      plan,
+      label: planMeta.label,
+      unlocked_features: planMeta.features,
+      limits: {
+        tokens_per_request: planMeta.token_limit,
+        requests_per_minute: planMeta.rpm_limit,
+      },
+      subscription: {
+        expires_at: device.subscription_expires_at || null,
+        active: device.subscription_active || false,
+      },
+    });
+
+  } catch (err) {
+    logError("[Billing] Status check error:", err);
+    return res.status(500).json({ ok: false, error: "Failed to fetch billing status." });
   }
 });
 
