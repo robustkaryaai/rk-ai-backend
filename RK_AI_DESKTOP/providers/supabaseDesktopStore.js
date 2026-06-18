@@ -41,7 +41,7 @@ export function createSupabaseDesktopStore() {
     if (!DESKTOP_CONFIG.strictPersistence) return;
     // allow an explicit override for in-memory fallback (useful for tests/dev)
     if (process.env.RK_DESKTOP_ALLOW_INMEMORY_FALLBACK === '1') return;
-    throw new Error("RK AI Desktop persistence requires Supabase configuration.");
+    console.warn("⚠️ RK AI Desktop persistence requires Supabase configuration. Falling back to in-memory store.");
   }
 
   async function uploadBlob(blobPath, body, contentType = "application/json") {
