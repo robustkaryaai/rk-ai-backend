@@ -1,0 +1,49 @@
+openapi: 3.0.3
+info:
+  title: RK AI Desktop API (minimal)
+  version: 0.1.0
+servers:
+  - url: /rk-ai-desktop
+paths:
+  /jobs:
+    post:
+      summary: Enqueue a new execution job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+      responses:
+        '200':
+          description: Job accepted
+  /jobs/{jobId}:
+    get:
+      summary: Get job status
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job record
+components:
+  schemas:
+    JobRequest:
+      type: object
+      required:
+        - id
+        - plan
+      properties:
+        id:
+          type: string
+        plan:
+          type: string
+          description: one of the DESKTOP_PLANS
+        deviceId:
+          type: string
+        payload:
+          type: object
+          description: arbitrary plan payload
