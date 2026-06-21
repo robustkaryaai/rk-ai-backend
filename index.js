@@ -461,6 +461,53 @@ app.use("/billing", billingRouter);
 // ---------------- APPLY DEVICE VALIDATION TO ALL SUBSEQUENT ROUTES ----------------
 app.use(validateDevice);
 
+import { getLimitsForTier } from "./RK_AI_HOME/limitManager.js";
+
+// ---------------- RPM RATE LIMITER ----------------
+const rpmTracker = new Map();
+
+async function rateLimitMiddleware(req, res, next) {
+  // Only limit actual AI action routes, ignore simple status checks
+  if (req.path.endsWith("/status") || req.method === "GET") {
+    return next();
+  }
+
+  const slug = req.params.slug || req.headers["x-device-slug"];
+  if (!slug) return next();
+  
+  const normalizedSlug = normalizeSlug(slug);
+  const now = Date.now();
+  
+  if (!rpmTracker.has(normalizedSlug)) {
+    rpmTracker.set(normalizedSlug, []);
+  }
+  let requests = rpmTracker.get(normalizedSlug);
+  requests = requests.filter(ts => now - ts < 60000);
+  
+  try {
+    const sub = await getSubscriptionStatus(normalizedSlug);
+    const limits = getLimitsForTier(sub.tier);
+    const maxRpm = limits.rpm || 15;
+    
+    if (requests.length >= maxRpm) {
+      console.log(`[RPM Limiter] ${normalizedSlug} hit limit of ${maxRpm} RPM`);
+      return res.status(429).json({ 
+        error: "too_many_requests", 
+        message: `RPM Limit reached! Your plan allows ${maxRpm} requests per minute.`,
+        shoom: true
+      });
+    }
+    
+    requests.push(now);
+    rpmTracker.set(normalizedSlug, requests);
+    next();
+  } catch (err) {
+    next();
+  }
+}
+
+app.use(rateLimitMiddleware);
+
 // ---------------- AUDIO TRANSCRIPTION & HEALTH ----------------
 // GET: Quick status check and metadata
 app.get("/audio/:slug", (req, res) => {
