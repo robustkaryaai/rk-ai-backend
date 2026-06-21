@@ -77,6 +77,7 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
 
 // Get subscription status for a slug
 export async function getSubscriptionStatus(slug) {
+  await ensureDeviceBySlug(slug, "desktop"); // Auto-create if it doesn't exist
   const device = await getUserPlanBySlug(slug);
   const now = new Date();
   let status = "expired";

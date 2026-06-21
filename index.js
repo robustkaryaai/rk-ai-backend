@@ -219,7 +219,8 @@ app.get("/auth/google/callback", async (req, res) => {
         if (existing.total > 0) {
           appwriteUser = existing.users[0];
         } else {
-          appwriteUser = await users.create(ID.unique(), userInfo.email, undefined, undefined, userInfo.name);
+          const randomPassword = Math.random().toString(36).slice(-10) + Math.random().toString(36).slice(-10) + "A1!";
+          appwriteUser = await users.create(ID.unique(), userInfo.email, undefined, randomPassword, userInfo.name);
         }
       } catch (err) {
         console.error("[Web Auth] Appwrite User Error:", err);
