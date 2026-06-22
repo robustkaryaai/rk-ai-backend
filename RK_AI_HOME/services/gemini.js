@@ -33,7 +33,7 @@ export async function listGeminiModels(customApiKey = null) {
     
     return [
       { name: "gemini-3.1-flash-lite-preview", displayName: "Gemini 3.1 Flash Lite (Default)" },
-      { name: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
+      { name: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite" },
       { name: "gemini-3-flash", displayName: "Gemini 3 Flash" },
       { name: "gemma-3-27b", displayName: "Gemma 3 27B" },
       { name: "gemma-3-12b", displayName: "Gemma 3 12B" },
@@ -43,7 +43,7 @@ export async function listGeminiModels(customApiKey = null) {
     logError("❌ Failed to list Gemini models:", err.message);
     return [
       { name: "gemini-3.1-flash-lite-preview", displayName: "Gemini 3.1 Flash Lite (Default)" },
-      { name: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" }
+      { name: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite" }
     ];
   }
 }
