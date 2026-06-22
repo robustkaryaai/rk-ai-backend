@@ -33,6 +33,7 @@ async function validateDevice(req, res, next) {
   if (
     req.path.startsWith("/auth/google") ||
     req.path.startsWith("/auth/spotify") ||
+    req.path.startsWith("/web/") ||
     req.path === "/rk-ai-desktop/health"
   ) {
     return next();
@@ -212,6 +213,11 @@ app.get("/auth/google/callback", async (req, res) => {
 
     // ── CASE 1: WEB LOGIN FLOW ──
     if (isWebFlow) {
+      console.log("[Web Auth] Google callback web flow", {
+        email: userInfo.email,
+        redirect: webRedirect,
+      });
+
       // Find or create user in Appwrite
       let appwriteUser;
       try {
@@ -228,6 +234,11 @@ app.get("/auth/google/callback", async (req, res) => {
       }
 
       // Redirect to frontend with token and userId
+      console.log("[Web Auth] Redirecting web session", {
+        userId: appwriteUser.$id,
+        email: appwriteUser.email,
+        redirect: webRedirect,
+      });
       return res.redirect(`${FRONTEND_URL}/auth/web-callback?token=${appwriteUser.$id}&userId=${appwriteUser.$id}&redirect=${encodeURIComponent(webRedirect)}`);
     }
 
@@ -413,6 +424,11 @@ app.get("/auth/spotify/callback", async (req, res) => {
 // ---------------- WEB AUTH GOOGLE START ----------------
 app.get("/web/auth/google/start", (req, res) => {
   const redirect = req.query.redirect || "/";
+  console.log("[Web Auth] Google start", {
+    redirect,
+    origin: req.headers.origin || null,
+    referer: req.headers.referer || null,
+  });
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: `https://rk-ai-backend.onrender.com/auth/google/callback`,
@@ -1889,15 +1905,55 @@ app.get("/shoom/debug/devices", (req, res) => {
 // Remove the separate /web/auth/google/callback as we'll unify it
 // (I will remove it in the next step when I edit the unified handler)
 
+function getWebAuthUserId(req) {
+  const authHeader = req.headers.authorization || "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  return (
+    req.headers["x-user-id"] ||
+    req.headers["x-appwrite-user-id"] ||
+    bearerToken ||
+    req.query.userId ||
+    req.query.token ||
+    ""
+  );
+}
+
 app.get("/web/auth/me", async (req, res) => {
-  const userId = req.headers["x-user-id"];
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  const userId = String(getWebAuthUserId(req)).trim();
+  console.log("[Web Auth] /web/auth/me request", {
+    hasAuthorization: Boolean(req.headers.authorization),
+    hasXUserId: Boolean(req.headers["x-user-id"]),
+    hasXAppwriteUserId: Boolean(req.headers["x-appwrite-user-id"]),
+    resolvedUserId: userId || null,
+    origin: req.headers.origin || null,
+    referer: req.headers.referer || null,
+  });
+
+  if (!userId) {
+    console.warn("[Web Auth] /web/auth/me missing user id", {
+      hasAuthorization: Boolean(req.headers.authorization),
+      hasXUserId: Boolean(req.headers["x-user-id"]),
+      hasXAppwriteUserId: Boolean(req.headers["x-appwrite-user-id"]),
+      queryKeys: Object.keys(req.query || {}),
+    });
+    return res.json({ authenticated: false, user: null, error: "Unauthorized" });
+  }
 
   try {
     const user = await users.get(userId);
-    return res.json({ user });
+    console.log("[Web Auth] /web/auth/me authenticated", {
+      userId: user.$id,
+      email: user.email,
+    });
+    return res.json({ authenticated: true, user });
   } catch (err) {
-    return res.status(401).json({ error: "Session invalid" });
+    console.warn("[Web Auth] /web/auth/me invalid user id", {
+      userId,
+      code: err?.code,
+      type: err?.type,
+      message: err?.message,
+    });
+    return res.status(401).json({ authenticated: false, user: null, error: "Session invalid" });
   }
 });
 
@@ -1924,6 +1980,11 @@ app.get("/web/profile/:userId", async (req, res) => {
 });
 
 app.post("/web/auth/logout", (req, res) => {
+  console.log("[Web Auth] logout", {
+    hasAuthorization: Boolean(req.headers.authorization),
+    hasXUserId: Boolean(req.headers["x-user-id"]),
+    origin: req.headers.origin || null,
+  });
   return res.json({ ok: true });
 });
 
