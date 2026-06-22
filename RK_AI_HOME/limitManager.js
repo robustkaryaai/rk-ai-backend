@@ -1,62 +1,57 @@
 // limitManager.js
-import { loadLimit, saveLimit } from "./memory.js";
 import { logInfo, logWarn } from "./utils/logger.js";
+import { getSubscriptionStatus, incrementAppwriteUsage } from "./services/appwriteClient.js";
 
-const DEFAULT_DAILY = {
-  image: 0,
-  video: 0,
-  ppt: 0,
-  ppt_slides: 0
-};
-
+// Monthly Limits per Tier
 const TIER_LIMITS = {
-  0: { image: 2, video: 1, ppt: 3, ppt_slides: 15 },
-  1: { image: 20, video: 2, ppt: 999999, ppt_slides: 999999 },
-  2: { image: 100, video: 10, ppt: 999999, ppt_slides: 999999 },
-  3: { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 },
-  4: { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 },
-  'infinity': { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 },
-  'Infinity': { image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999 }
+  0: { tokens: 0, image: 2, video: 1, ppt: 3, ppt_slides: 15, rpm: 15 }, // Free
+  1: { tokens: 1500000, image: 150, video: 15, ppt: 999999, ppt_slides: 999999, rpm: 30 }, // Pro
+  2: { tokens: 5000000, image: 600, video: 30, ppt: 999999, ppt_slides: 999999, rpm: 60 }, // Elite
+  3: { tokens: 15000000, image: 2000, video: 100, ppt: 999999, ppt_slides: 999999, rpm: 150 }, // Quantum
+  4: { tokens: 99999999, image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999, rpm: 300 }, // Infinity
+  'infinity': { tokens: 99999999, image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999, rpm: 300 },
+  'Infinity': { tokens: 99999999, image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999, rpm: 300 }
 };
-
-function todayKey() {
-  return new Date().toISOString().split("T")[0];
-}
 
 export async function ensureLimitFile(slug) {
-  let limits = (await loadLimit(slug)) || {};
-  const t = todayKey();
-  
-  // Refresh if today's key doesn't exist (24h refresh)
-  if (!limits[t]) {
-    logInfo(`[Limits] Refreshing 24h limits for ${slug}. New day: ${t}`);
-    
-    // Optional: Keep a history of last 7 days only to save space
-    const keys = Object.keys(limits).sort();
-    if (keys.length > 7) {
-      delete limits[keys[0]];
-    }
-    
-    limits[t] = { ...DEFAULT_DAILY };
-    await saveLimit(slug, limits);
-  }
-  return limits;
+  // Legacy function - we now rely on Appwrite, but we return a mock to avoid breaking legacy code
+  const sub = await getSubscriptionStatus(slug);
+  return {
+    image: sub.imagesUsed || 0,
+    video: sub.videosUsed || 0,
+    tokens: sub.tokensUsed || 0
+  };
 }
 
 export async function checkAndConsume(slug, tier, feature, amount = 1) {
-  const limits = (await ensureLimitFile(slug)) || {};
-  const t = todayKey();
-  const used = limits[t][feature] || 0;
-  const allowed = TIER_LIMITS[tier]?.[feature] ?? 0;
+  try {
+    const sub = await getSubscriptionStatus(slug);
+    const allowed = TIER_LIMITS[tier]?.[feature] ?? 0;
+    
+    // Map feature to Appwrite field
+    let used = 0;
+    if (feature === "image") used = sub.imagesUsed || 0;
+    if (feature === "video") used = sub.videosUsed || 0;
+    if (feature === "tokens") used = sub.tokensUsed || 0;
+    
+    // Legacy support for PPT which we don't track tightly in Appwrite yet
+    if (feature === "ppt" || feature === "ppt_slides") used = 0; 
 
-  if (used + amount > allowed) {
-    return { ok: false, used, allowed };
+    if (used + amount > allowed) {
+      return { ok: false, used, allowed };
+    }
+
+    // Increment in Appwrite
+    if (feature === "image" || feature === "video" || feature === "tokens") {
+      await incrementAppwriteUsage(slug, feature, amount);
+    }
+    
+    logInfo(`Consumed ${amount} ${feature} for ${slug} — ${used + amount}/${allowed}`);
+    return { ok: true, used: used + amount, allowed };
+  } catch (err) {
+    logWarn(`Error checking limits for ${slug}: ${err}`);
+    return { ok: false, used: 0, allowed: 0 };
   }
-
-  limits[t][feature] = used + amount;
-  await saveLimit(slug, limits);
-  logInfo(`Consumed ${amount} ${feature} for ${slug} — ${limits[t][feature]}/${allowed}`);
-  return { ok: true, used: limits[t][feature], allowed };
 }
 
 export function getLimitsForTier(tier) {
