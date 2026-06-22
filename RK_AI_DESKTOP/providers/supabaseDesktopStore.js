@@ -4,6 +4,39 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function sanitizeUrl(rawUrl) {
+  if (!rawUrl) return "";
+  try {
+    const url = new URL(rawUrl);
+    return `${url.protocol}//${url.hostname}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+function describeError(err) {
+  const message = String(err?.message || "");
+  return {
+    name: err?.name,
+    message: message.length > 500 ? `${message.slice(0, 500)}...` : message,
+    code: err?.code,
+    details: err?.details,
+    hint: err?.hint,
+    cause: err?.cause
+      ? {
+          name: err.cause.name,
+          message: err.cause.message,
+          code: err.cause.code,
+          errno: err.cause.errno,
+          syscall: err.cause.syscall,
+          hostname: err.cause.hostname,
+          address: err.cause.address,
+          port: err.cause.port,
+        }
+      : null,
+  };
+}
+
 function createMemoryFallback() {
   return {
     jobs: new Map(),
@@ -20,19 +53,38 @@ export function createSupabaseDesktopStore() {
   const hasConfig =
     Boolean(DESKTOP_CONFIG.storage.url) && Boolean(DESKTOP_CONFIG.storage.serviceRoleKey);
   let client = null;
+  let lastListJobsFailureLogAt = 0;
   if (hasConfig) {
+    console.log("[Desktop Store] Supabase persistence configured", {
+      url: sanitizeUrl(DESKTOP_CONFIG.storage.url),
+      bucket: DESKTOP_CONFIG.storage.bucket,
+      jobsTable: DESKTOP_CONFIG.storage.tableNames.jobs,
+      strictPersistence: DESKTOP_CONFIG.strictPersistence,
+    });
     // dynamically import to avoid hard dependency in tests/environments without @supabase/supabase-js
     import('@supabase/supabase-js')
       .then((mod) => {
         try {
           client = mod.createClient(DESKTOP_CONFIG.storage.url, DESKTOP_CONFIG.storage.serviceRoleKey);
+          console.log("[Desktop Store] Supabase client initialized", {
+            url: sanitizeUrl(DESKTOP_CONFIG.storage.url),
+            jobsTable: DESKTOP_CONFIG.storage.tableNames.jobs,
+          });
         } catch (err) {
+          console.warn("[Desktop Store] Supabase client initialization failed", describeError(err));
           client = null;
         }
       })
-      .catch(() => {
-        // ignore and keep client null (use in-memory fallback)
+      .catch((err) => {
+        console.warn("[Desktop Store] Supabase module import failed", describeError(err));
+        // keep client null (use in-memory fallback)
       });
+  } else {
+    console.warn("[Desktop Store] Supabase persistence not configured", {
+      hasUrl: Boolean(DESKTOP_CONFIG.storage.url),
+      hasServiceRoleKey: Boolean(DESKTOP_CONFIG.storage.serviceRoleKey),
+      strictPersistence: DESKTOP_CONFIG.strictPersistence,
+    });
   }
   const memoryFallback = createMemoryFallback();
 
@@ -146,12 +198,42 @@ export function createSupabaseDesktopStore() {
         return [...memoryFallback.jobs.values()].filter((j) => statuses.includes(j.status));
       }
 
-      const { data, error } = await client
-        .from(DESKTOP_CONFIG.storage.tableNames.jobs)
-        .select("*")
-        .in("status", statuses);
+      let data;
+      let error;
+      try {
+        const result = await client
+          .from(DESKTOP_CONFIG.storage.tableNames.jobs)
+          .select("*")
+          .in("status", statuses);
+        data = result.data;
+        error = result.error;
+      } catch (err) {
+        const now = Date.now();
+        if (now - lastListJobsFailureLogAt > 5 * 60 * 1000) {
+          lastListJobsFailureLogAt = now;
+          console.warn("[Desktop Store] listJobsByStatus fetch failed; using in-memory fallback for recovery scan", {
+            url: sanitizeUrl(DESKTOP_CONFIG.storage.url),
+            table: DESKTOP_CONFIG.storage.tableNames.jobs,
+            statuses,
+            error: describeError(err),
+          });
+        }
+        return [...memoryFallback.jobs.values()].filter((j) => statuses.includes(j.status));
+      }
 
-      if (error) throw error;
+      if (error) {
+        const now = Date.now();
+        if (now - lastListJobsFailureLogAt > 5 * 60 * 1000) {
+          lastListJobsFailureLogAt = now;
+          console.warn("[Desktop Store] listJobsByStatus Supabase error; using in-memory fallback for recovery scan", {
+            url: sanitizeUrl(DESKTOP_CONFIG.storage.url),
+            table: DESKTOP_CONFIG.storage.tableNames.jobs,
+            statuses,
+            error: describeError(error),
+          });
+        }
+        return [...memoryFallback.jobs.values()].filter((j) => statuses.includes(j.status));
+      }
       return data || [];
     },
 

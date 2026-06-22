@@ -2,6 +2,28 @@ import { DESKTOP_CONFIG, DESKTOP_PLANS, DESKTOP_QUEUE_WEIGHTS } from "../configu
 import { JOB_STATUS } from "../contracts/job.js";
 import { metrics } from "../observability/metrics.js";
 
+function describeError(err) {
+  const message = String(err?.message || "");
+  return {
+    name: err?.name,
+    message: message.length > 500 ? `${message.slice(0, 500)}...` : message,
+    code: err?.code,
+    type: err?.type,
+    cause: err?.cause
+      ? {
+          name: err.cause.name,
+          message: err.cause.message,
+          code: err.cause.code,
+          errno: err.cause.errno,
+          syscall: err.cause.syscall,
+          hostname: err.cause.hostname,
+          address: err.cause.address,
+          port: err.cause.port,
+        }
+      : null,
+  };
+}
+
 export function createWeightedScheduler({ store } = {}) {
   const queues = new Map([
     [DESKTOP_PLANS.core, []],
@@ -80,7 +102,11 @@ export function createWeightedScheduler({ store } = {}) {
         }
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.warn("Recovery loop error:", err.message || err);
+        console.warn("[Desktop Scheduler] Recovery loop error", {
+          operation: "store.listJobsByStatus",
+          statuses: [JOB_STATUS.waiting],
+          error: describeError(err),
+        });
       }
     }, intervalMs);
   }

@@ -26,6 +26,8 @@ const normalizeSlug = (slug) => {
 // Simple in-memory LRU cache for device validation (to avoid hitting Appwrite every request)
 const deviceCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const webUserCache = new Map();
+const WEB_USER_CACHE_TTL = 5 * 60 * 1000;
 
 // Device Validation Middleware (for Pi endpoints and most desktop endpoints)
 async function validateDevice(req, res, next) {
@@ -1919,6 +1921,7 @@ function getWebAuthUserId(req) {
 }
 
 app.get("/web/auth/me", async (req, res) => {
+  res.set("Cache-Control", "no-store");
   const userId = String(getWebAuthUserId(req)).trim();
   console.log("[Web Auth] /web/auth/me request", {
     hasAuthorization: Boolean(req.headers.authorization),
@@ -1940,10 +1943,20 @@ app.get("/web/auth/me", async (req, res) => {
   }
 
   try {
-    const user = await users.get(userId);
+    const cached = webUserCache.get(userId);
+    let user = cached && Date.now() - cached.timestamp < WEB_USER_CACHE_TTL ? cached.user : null;
+    const source = user ? "cache" : "appwrite";
+    if (!user) {
+      user = await users.get(userId);
+      webUserCache.set(userId, {
+        user,
+        timestamp: Date.now(),
+      });
+    }
     console.log("[Web Auth] /web/auth/me authenticated", {
       userId: user.$id,
       email: user.email,
+      source,
     });
     return res.json({ authenticated: true, user });
   } catch (err) {
