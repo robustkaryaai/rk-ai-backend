@@ -461,8 +461,6 @@ app.use("/billing", billingRouter);
 // ---------------- APPLY DEVICE VALIDATION TO ALL SUBSEQUENT ROUTES ----------------
 app.use(validateDevice);
 
-import { getLimitsForTier } from "./RK_AI_HOME/limitManager.js";
-
 // ---------------- RPM RATE LIMITER ----------------
 const rpmTracker = new Map();
 
