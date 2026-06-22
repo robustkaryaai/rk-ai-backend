@@ -18,45 +18,66 @@ const router = express.Router();
 const PLANS = {
   free: {
     label: "Free",
-    features: [],
-    token_limit: 5000,
-    rpm_limit: 30,
-    duration_days_default: 36500, // "forever"
+    features: [
+      "local_models",
+      "local_stt",
+      "local_tts",
+      "offline_mode"
+    ],
+    local_only: true,
   },
-  core: {
-    label: "Core",
-    features: ["cloud_models", "google_stt_tts", "online_search"],
-    token_limit: 20000,
-    rpm_limit: 120,
-    duration_days_default: 30,
-  },
-  studio: {
-    label: "Studio",
+
+  pro: {
+    label: "Pro",
     features: [
       "cloud_models",
       "google_stt_tts",
       "online_search",
-      "rk_ai_autonomy",
-      "os_screen_control",
-      "autonomous_tasks",
+      "coding_mode"
     ],
-    token_limit: 50000,
-    rpm_limit: 300,
+    monthly_token_limit: 1000000,
+    rpm_limit: 5,
+    image_limit: 100,
+    video_limit: 10,
     duration_days_default: 30,
   },
-  studio_max: {
-    label: "Studio Max",
+
+  elite: {
+    label: "Elite",
     features: [
       "cloud_models",
       "google_stt_tts",
       "online_search",
+      "coding_mode",
+      "rk_ai_autonomy"
+    ],
+    monthly_token_limit: 5000000,
+    rpm_limit: 15,
+    image_limit: 300,
+    video_limit: 50,
+    computer_control_sessions: 20,
+    duration_days_default: 30,
+  },
+
+  quantum: {
+    label: "Quantum",
+    features: [
+      "cloud_models",
+      "google_stt_tts",
+      "online_search",
+      "coding_mode",
       "rk_ai_autonomy",
       "os_screen_control",
       "autonomous_tasks",
-      "media_tools"
+      "media_tools",
+      "gemini_live",
+      "priority_queue"
     ],
-    token_limit: 100000,
-    rpm_limit: 500,
+    monthly_token_limit: 15000000,
+    rpm_limit: 50,
+    image_limit: 750,
+    video_limit: 100,
+    live_minutes_limit: 200,
     duration_days_default: 30,
   },
 };

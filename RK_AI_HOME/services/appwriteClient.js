@@ -11,6 +11,52 @@ const client = new Client()
 export const db = new Databases(client);
 export const users = new Users(client);
 
+async function logAppwriteStructureError(context, err, payload = {}) {
+  const details = {
+    file: "RK_AI_HOME/services/appwriteClient.js",
+    ...context,
+    appwrite: {
+      endpoint: process.env.APPWRITE_ENDPOINT,
+      projectId: process.env.APPWRITE_PROJECT_ID,
+      databaseId: process.env.APPWRITE_DB_ID,
+      collectionId: process.env.APPWRITE_DEVICES_COLLECTION,
+    },
+    payloadKeys: Object.keys(payload),
+    code: err?.code,
+    type: err?.type,
+    message: err?.message,
+    response: err?.response,
+  };
+
+  if (err?.type === "document_invalid_structure") {
+    try {
+      const attributes = await db.listAttributes(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION
+      );
+      details.collectionAttributes = attributes.attributes?.map((attribute) => ({
+        key: attribute.key,
+        type: attribute.type,
+        status: attribute.status,
+        required: attribute.required,
+        array: attribute.array,
+      }));
+      details.hasSubscriptionExpiresAt = details.collectionAttributes.some(
+        (attribute) => attribute.key === "subscription_expires_at"
+      );
+    } catch (attrErr) {
+      details.attributeLookupError = {
+        code: attrErr?.code,
+        type: attrErr?.type,
+        message: attrErr?.message,
+        response: attrErr?.response,
+      };
+    }
+  }
+
+  console.error("[Appwrite document structure culprit]", JSON.stringify(details, null, 2));
+}
+
 export async function getUserPlanBySlug(slug) {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
@@ -56,25 +102,42 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
     return { created: false };
   }
 
-  await db.createDocument(
-    process.env.APPWRITE_DB_ID,
-    process.env.APPWRITE_DEVICES_COLLECTION,
-    ID.unique(),
-    {
-      slug: Number(slug),
-      subscription: "false",
-      "subscription-tier": 0,
-      name_of_device: "RK AI",
-      storage_limit_mb: 500,
-      storageUsing: "supabase",
-      device_type: deviceType,
-      subscription_expires_at: null,
-      tokensUsed: 0,
-      imagesUsed: 0,
-      videosUsed: 0,
-      usageResetAt: null
-    }
-  );
+  const payload = {
+    slug: Number(slug),
+    subscription: "false",
+    "subscription-tier": 0,
+    name_of_device: "RK AI",
+    storage_limit_mb: 500,
+    storageUsing: "supabase",
+    device_type: deviceType,
+    subscription_expires_at: null,
+    tokensUsed: 0,
+    imagesUsed: 0,
+    videosUsed: 0,
+    usageResetAt: null
+  };
+
+  try {
+    await db.createDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      ID.unique(),
+      payload
+    );
+  } catch (err) {
+    await logAppwriteStructureError(
+      {
+        function: "ensureDeviceBySlug",
+        action: "createDocument",
+        culpritLine: "createDocument payload includes subscription_expires_at",
+        slug: Number(slug),
+        deviceType,
+      },
+      err,
+      payload
+    );
+    throw err;
+  }
 
   return { created: true };
 }
