@@ -92,62 +92,78 @@ router.post("/upgrade", async (req, res) => {
   try {
     const { plan, payment_token, slug, email, deviceSlug, duration_days } = req.body;
     let finalDeviceSlug = deviceSlug || req.headers["x-device-slug"] || "";
-    
-    // Attempt to upgrade the user's account in the custom 'users' collection first
-    try {
-        const targetEmail = email || slug;
-        const dbSlug = await upgradeDatabaseUser(targetEmail, plan);
-        if (dbSlug) {
-            finalDeviceSlug = dbSlug;
-            logInfo(`[Billing] User ${targetEmail} upgraded to ${plan}. Linked device slug: ${finalDeviceSlug}`);
-        }
-    } catch (dbErr) {
-        logError(`[Billing] Could not update users collection for ${email || slug}:`, dbErr.message);
-    }
 
     // ── Validation ──────────────────────────────────────────────
     if (!plan) {
       return res.status(400).json({ ok: false, error: "Plan is required" });
     }
-    if (!finalDeviceSlug) {
-      return res.status(400).json({ ok: false, error: "Device slug is required" });
-    }
-    if (isNaN(Number(finalDeviceSlug))) {
-      return res.status(404).json({ ok: false, error: "Device not found for this account. Ensure you have a registered device." });
-    }
     if (!PLANS[plan]) {
       return res.status(400).json({ ok: false, error: `Invalid plan. Valid options: ${Object.keys(PLANS).join(", ")}` });
     }
 
-    logInfo(`[Billing] Upgrade request — plan: ${plan} | deviceSlug: ${finalDeviceSlug} | email: ${email || slug}`);
-
-    // ── Step 1: Ensure device exists ─────────────────────────────
-    await ensureDeviceBySlug(finalDeviceSlug, "desktop");
-
-    // ── Step 2: Ensure device is tagged as desktop ───────────────
-    const device = await getUserPlanBySlug(finalDeviceSlug);
-    if (device.device_type !== "desktop") {
-      await db.updateDocument(
-        process.env.APPWRITE_DB_ID,
-        process.env.APPWRITE_DEVICES_COLLECTION,
-        device.$id,
-        { device_type: "desktop" }
-      );
-    }
-
-    // ── Step 3: Payment processing ───────────────────────────────
-    // TODO: Replace this block with real Stripe charge
-    logInfo(`[Billing] Payment token received: ${payment_token ? payment_token.slice(0, 12) + "..." : "none (simulated)"}`);
-
-    // ── Step 4: Update subscription in Appwrite ──────────────────
     const planMeta = PLANS[plan];
     const duration = duration_days || planMeta.duration_days_default;
-    // Update the device in Appwrite (slug -> integer)
-    const updatedStatus = await updateSubscription(finalDeviceSlug, plan, duration);
 
-    logInfo(`[Billing] ✓ Upgraded device ${finalDeviceSlug} → ${plan} (${duration} days)`);
+    // ── Step 1: Upgrade user account in users collection ────────
+    // This works for both web users and device users
+    let dbSlug = null;
+    try {
+      const targetEmail = email || slug;
+      if (targetEmail) {
+        dbSlug = await upgradeDatabaseUser(targetEmail, plan);
+        if (dbSlug) {
+          finalDeviceSlug = dbSlug;
+          logInfo(`[Billing] User ${targetEmail} upgraded to ${plan}. Linked device slug: ${finalDeviceSlug}`);
+        }
+      }
+    } catch (dbErr) {
+      // Not fatal — user may not have a users collection entry yet
+      logError(`[Billing] Could not update users collection for ${email || slug}:`, dbErr.message);
+    }
 
-    // ── Step 5: Respond ──────────────────────────────────────────
+    logInfo(`[Billing] Upgrade request — plan: ${plan} | deviceSlug: ${finalDeviceSlug || "none (web user)"} | email: ${email || slug}`);
+
+    // ── Step 2: If a valid numeric device slug exists, upgrade device too ──
+    const hasDevice = finalDeviceSlug && !isNaN(Number(finalDeviceSlug));
+
+    if (hasDevice) {
+      // Ensure device exists and is tagged as desktop
+      await ensureDeviceBySlug(finalDeviceSlug, "desktop");
+
+      const device = await getUserPlanBySlug(finalDeviceSlug);
+      if (device.device_type !== "desktop") {
+        await db.updateDocument(
+          process.env.APPWRITE_DB_ID,
+          process.env.APPWRITE_DEVICES_COLLECTION,
+          device.$id,
+          { device_type: "desktop" }
+        );
+      }
+
+      // ── Step 3: Payment processing ───────────────────────────────
+      logInfo(`[Billing] Payment token received: ${payment_token ? payment_token.slice(0, 12) + "..." : "none (simulated)"}`);
+
+      // ── Step 4: Update subscription on the device ────────────────
+      const updatedStatus = await updateSubscription(finalDeviceSlug, plan, duration);
+      logInfo(`[Billing] ✓ Upgraded device ${finalDeviceSlug} → ${plan} (${duration} days)`);
+
+      return res.json({
+        ok: true,
+        message: `Successfully upgraded to ${planMeta.label} tier.`,
+        plan,
+        unlocked_features: planMeta.features,
+        limits: {
+          tokens_per_request: planMeta.token_limit,
+          requests_per_minute: planMeta.rpm_limit,
+        },
+        subscription: updatedStatus,
+      });
+    }
+
+    // ── Web-only user: no device, upgrade recorded on account only ──
+    logInfo(`[Billing] Payment token received: ${payment_token ? payment_token.slice(0, 12) + "..." : "none (simulated)"}`);
+    logInfo(`[Billing] ✓ Upgraded web account → ${plan}`);
+
     return res.json({
       ok: true,
       message: `Successfully upgraded to ${planMeta.label} tier.`,
@@ -157,7 +173,11 @@ router.post("/upgrade", async (req, res) => {
         tokens_per_request: planMeta.token_limit,
         requests_per_minute: planMeta.rpm_limit,
       },
-      subscription: updatedStatus,
+      subscription: {
+        active: true,
+        device_linked: false,
+        note: "Plan applied to your account. Link a device to apply device-level features.",
+      },
     });
 
   } catch (err) {
