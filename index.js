@@ -905,17 +905,19 @@ app.get("/desktop/profile/:userId", async (req, res) => {
           plan = userDoc.plan;
           expires = userDoc.subscription_expires_at || null;
         }
-      } catch (e) {
-        // Fallback for legacy upgrades (devices collection)
-        try {
-          const deviceDoc = await getUserPlanBySlug(userId);
-          if (deviceDoc && deviceDoc.subscription === "true") {
-            const tiers = { 0: "free", 1: "pro", 2: "elite", 3: "quantum", 4: "infinity" };
-            plan = tiers[deviceDoc["subscription-tier"]] || "free";
-            expires = deviceDoc.subscription_expires_at || null;
-          }
-        } catch (e2) {}
-      }
+      } catch (e) {}
+    }
+    
+    // Fallback for legacy upgrades (devices collection)
+    if (plan === "free") {
+      try {
+        const deviceDoc = await getUserPlanBySlug(userId);
+        if (deviceDoc && deviceDoc.subscription === "true") {
+          const tiers = { 0: "free", 1: "pro", 2: "elite", 3: "quantum", 4: "infinity" };
+          plan = tiers[deviceDoc["subscription-tier"]] || "free";
+          expires = deviceDoc.subscription_expires_at || null;
+        }
+      } catch (e2) {}
     }
     
     return res.json({ plan, expires });
@@ -2021,7 +2023,9 @@ app.get("/web/profile/:userId", async (req, res) => {
           plan = userDoc.plan;
           expires = userDoc.subscription_expires_at || null;
         }
-      } catch (e) {
+      } catch (e) {}
+      
+      if (plan === "free") {
         try {
           const deviceDoc = await getUserPlanBySlug(userId);
           if (deviceDoc && deviceDoc.subscription === "true") {

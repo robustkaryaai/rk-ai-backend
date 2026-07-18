@@ -80,7 +80,9 @@ export function createWeightedScheduler({ store } = {}) {
         }
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.warn("Recovery loop error:", err.message || err);
+        if (!String(err.message || err).includes("schema cache")) {
+          console.warn("Recovery loop error:", err.message || err);
+        }
       }
     }, intervalMs);
   }

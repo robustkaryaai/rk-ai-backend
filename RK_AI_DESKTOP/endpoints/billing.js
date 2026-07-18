@@ -133,8 +133,7 @@ router.post("/upgrade", async (req, res) => {
           {
             userId: targetUserId,
             plan: plan,
-            status: "active",
-            currentPeriodEnd: new Date(Date.now() + duration * 24 * 60 * 60 * 1000).toISOString()
+            status: "active"
           }
         );
       }
