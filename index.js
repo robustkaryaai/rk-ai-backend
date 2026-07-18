@@ -35,7 +35,7 @@ async function validateDevice(req, res, next) {
     req.path.startsWith("/auth/spotify") ||
     req.path.startsWith("/web/") ||
     req.path === "/rk-ai-desktop/health" ||
-    req.path === "/rk-ai-desktop/legacy/billing/upgrade"
+    req.path === "/rk-ai-desktop/billing/upgrade"
   ) {
     return next();
   }
