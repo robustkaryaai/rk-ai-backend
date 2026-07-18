@@ -8,6 +8,8 @@ import {
 } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { db } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { ID } from "node-appwrite";
+import { getLimitsForTier, ensureLimitFile } from "../../RK_AI_HOME/limitManager.js";
+import { listFilesFromSlug, supabase } from "../../RK_AI_HOME/services/supabaseClient.js";
 
 const router = express.Router();
 
@@ -240,6 +242,57 @@ router.get("/status", async (req, res) => {
   } catch (err) {
     logError("[Billing] Status check error:", err);
     return res.status(500).json({ ok: false, error: "Failed to fetch billing status." });
+  }
+});
+// Cloud Dashboard API for Desktop Settings
+router.get("/cloud-dashboard/:slug", async (req, res) => {
+  try {
+    const { slug } = req.params;
+    if (!slug) return res.status(400).json({ error: "Slug required" });
+
+    const device = await getUserPlanBySlug(slug);
+    const tier = Number(device["subscription-tier"] || 0);
+    const allowed = getLimitsForTier(tier);
+    const used = await ensureLimitFile(slug); // returns { image, video, tokens }
+
+    let imagePercent = 0;
+    if (allowed.image > 0) {
+      imagePercent = Math.min(100, Math.round((used.image / allowed.image) * 100));
+    }
+
+    let videoPercent = 0;
+    if (allowed.video > 0) {
+      videoPercent = Math.min(100, Math.round((used.video / allowed.video) * 100));
+    }
+
+    const filesResponse = await listFilesFromSlug(slug);
+    
+    // Attach public URLs to files
+    const bucket = process.env.SUPABASE_BUCKET || "user-files";
+    const mappedFiles = filesResponse.map(f => {
+      const { data } = supabase.storage.from(bucket).getPublicUrl(`${slug}/${f.name}`);
+      return {
+        ...f,
+        url: data ? data.publicUrl : null
+      };
+    });
+
+    return res.json({
+      ok: true,
+      tier,
+      usage: {
+        imagePercent,
+        videoPercent,
+        imageUsed: used.image,
+        imageAllowed: allowed.image,
+        videoUsed: used.video,
+        videoAllowed: allowed.video
+      },
+      files: mappedFiles
+    });
+  } catch (err) {
+    logError("Cloud Dashboard Error:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
