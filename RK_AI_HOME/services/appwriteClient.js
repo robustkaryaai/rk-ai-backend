@@ -315,8 +315,7 @@ export async function upgradeDatabaseUser(email, plan, durationDays = 30) {
     usersCollection,
     userDoc.$id,
     {
-      plan: plan,
-      subscription_expires_at: expiresAt
+      plan: plan
     }
   );
 
