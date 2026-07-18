@@ -1,0 +1,80 @@
+Title/Task: thermodynamics chemistry class 11th
+Generated: 2025-12-05T10:24:16.629Z
+
+**Student:** {student_name}
+**Level:** Class 11th
+
+**Topic: Thermodynamics (Chemistry)**
+
+**1. Introduction**
+*   **Thermodynamics:** Study of energy changes, heat, work, and spontaneity of physical and chemical processes.
+*   **Focus:** Predicting feasibility of reactions and extent of energy transformations.
+
+**2. Key Terminology**
+*   **System:** Part of the universe under study.
+*   **Surroundings:** Everything else outside the system.
+*   **Boundary:** Separates system from surroundings.
+*   **Types of Systems:**
+    *   **Open:** Exchanges both matter and energy (e.g., open beaker).
+    *   **Closed:** Exchanges energy, not matter (e.g., sealed flask).
+    *   **Isolated:** Exchanges neither matter nor energy (e.g., thermos).
+*   **State Functions:** Properties depending only on initial/final states (e.g., P, V, T, U, H, S, G).
+*   **Path Functions:** Properties depending on the path taken (e.g., q, w).
+*   **Intensive Properties:** Independent of substance amount (e.g., T, P, density).
+*   **Extensive Properties:** Depend on substance amount (e.g., V, U, H, S, G, mass).
+*   **Thermodynamic Processes:**
+    *   **Isothermal:** Constant Temperature (ΔT = 0).
+    *   **Adiabatic:** No heat exchange (q = 0).
+    *   **Isobaric:** Constant Pressure (ΔP = 0).
+    *   **Isochoric:** Constant Volume (ΔV = 0).
+    *   **Reversible:** Infinitesimally slow, equilibrium at each step.
+    *   **Irreversible:** Fast, spontaneous.
+
+**3. Internal Energy (U) & First Law of Thermodynamics**
+*   **Internal Energy (U):** Total energy stored within a system (state function).
+*   **First Law:** Energy is conserved; it can change forms but cannot be created or destroyed.
+    *   **Equation:** ΔU = q + w
+        *   ΔU: Change in internal energy.
+        *   q: Heat (positive if absorbed by system, negative if released).
+        *   w: Work (positive if done on system, negative if done by system).
+*   **Pressure-Volume Work (w):** w = -P_ext * ΔV
+    *   For expansion (ΔV > 0), work done by system (w < 0).
+    *   For compression (ΔV < 0), work done on system (w > 0).
+
+**4. Enthalpy (H)**
+*   **Enthalpy (H):** Heat content of a system at constant pressure (state function).
+    *   **Equation:** H = U + PV
+    *   **Change in Enthalpy (ΔH):** Heat exchanged at constant pressure (ΔH = q_p).
+    *   **Relation to ΔU:** ΔH = ΔU + PΔV (at constant P)
+    *   For gas reactions: ΔH = ΔU + Δn_g RT (where Δn_g = moles of gaseous products - moles of gaseous reactants).
+*   **Standard Enthalpies (ΔH°):** Values measured at standard conditions (298 K, 1 bar).
+    *   **Enthalpy of Formation (ΔH_f°):** For forming 1 mole of compound from elements.
+    *   **Enthalpy of Combustion (ΔH_c°):** For complete combustion of 1 mole.
+*   **Hess's Law:** Total enthalpy change for a reaction is the sum of enthalpy changes for its individual steps, regardless of the path.
+
+**5. Spontaneity, Entropy (S) & Gibbs Energy (G)**
+*   **Spontaneous Process:** Occurs naturally without external aid.
+*   **Entropy (S):** Measure of disorder or randomness (state function).
+    *   **Increases with:** Temperature rise, phase change (solid→liquid→gas), increase in number of gas moles.
+*   **Second Law of Thermodynamics:** For a spontaneous process, total entropy of the universe increases (ΔS_total > 0).
+    *   ΔS_total = ΔS_system + ΔS_surroundings
+    *   ΔS_surroundings = -ΔH_system / T
+*   **Gibbs Free Energy (G):** Energy available to do useful work (state function).
+    *   **Equation:** G = H - TS
+    *   **Gibbs-Helmholtz Equation:** ΔG = ΔH - TΔS (at constant T, P).
+*   **Criteria for Spontaneity (using ΔG_system at constant T, P):**
+    *   **ΔG < 0:** Spontaneous process.
+    *   **ΔG > 0:** Non-spontaneous process.
+    *   **ΔG = 0:** System at equilibrium.
+*   **Effect of ΔH and ΔS on ΔG:**
+    *   ΔH (-) & ΔS (+) → ΔG always (-) → Spontaneous at all T.
+    *   ΔH (+) & ΔS (-) → ΔG always (+) → Non-spontaneous at all T.
+    *   ΔH (-) & ΔS (-) → ΔG (-) at low T, ΔG (+) at high T.
+    *   ΔH (+) & ΔS (+) → ΔG (+) at low T, ΔG (-) at high T.
+*   **Relation between ΔG° and Equilibrium Constant (K):**
+    *   ΔG° = -RT ln K
+    *   If K > 1, ΔG° < 0 (products favored).
+    *   If K < 1, ΔG° > 0 (reactants favored).
+
+**6. Third Law of Thermodynamics**
+*   **Statement:** The entropy of a perfectly crystalline solid is zero at absolute zero temperature (0 K).

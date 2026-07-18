@@ -1,0 +1,61 @@
+# RK-AI Backend — Expenses, Pricing & Queue Guidance
+
+Purpose
+- Snapshot of providers/models the repo actually uses, concise pricing guidance, and queue-aware operational notes so you can estimate and control costs.
+
+Summary of providers used in this repo
+- Hugging Face (via `@huggingface/inference` / `HfInference`)
+  - Where used: `RK_AI_HOME/modules/videoGenerator.js`, `index.js` (STT uses `openai/whisper-large-v3-turbo` via HF), other HF image/video inference calls.
+  - Models/examples in code: `openai/whisper-large-v3-turbo`, `Lightricks/LTX-Video` (via HF), various image models (FLUX.* referenced in docs).
+  - Pricing notes: HF has a free tier and pay-as-you-go inference. Inference Providers may route to multiple backends; pricing depends on provider and model. See: https://huggingface.co/docs/inference-providers/pricing
+
+- Google GenAI (via `@google/genai` / `services/gemini.js`)
+  - Where used: `RK_AI_HOME/services/gemini.js`, `RK_AI_DESKTOP/configuration/index.js` (plannerModel default `gemini-3.1-flash-lite-preview`).
+  - Models referenced in code: `gemini-3.1-flash-lite-preview`, `gemini-2.5-flash`, `gemini-3-flash`, `gemma-3-27b`, `gemma-3-12b`, `gemma-3-4b`.
+  - Pricing notes: Google bills GenAI usage (tokens / response units) on Cloud. Check Google GenAI pricing for up-to-date rates: https://cloud.google.com/generative-ai/pricing
+
+- deAPI (text→image integration in `RK_AI_HOME/modules/imageGenerator.js`)
+  - Where used: `RK_AI_HOME/modules/imageGenerator.js` (text→image submissions).
+  - Models/examples: `Flux1schnell` used as the `model` in the code.
+  - Pricing notes: deAPI offers a free tier / credits and per-image pricing; check https://deapi.ai/pricing for current numbers.
+
+- Pixwith / Lightricks / LTX (video generation)
+  - Where used: `RK_AI_HOME/modules/videoGenerator.js` (PIXWITH_API_KEY, LTX_API_KEY, model ids like `ltx-2-3-pro`).
+  - Pricing notes: Pixwith is credit/subscription-based. LTX (Lightricks) may offer pay-per-job or enterprise plans—refer to provider docs.
+
+Other infra and libraries
+- Supabase (`@supabase/supabase-js`) for storage — costs: Supabase billing for storage and egress; check your Supabase project billing.
+- Appwrite (`node-appwrite`) used for plan lookup — costs depend on self-hosting or Appwrite Cloud.
+
+STT / TTS — Free & low-cost options (recommended)
+- Current Python service choice: `speech_recognition` (Google Web Speech API) for light/testing use.
+- Production recommendations:
+  - STT: run local Whisper (whisper.cpp) or Vosk for offline/zero-API-cost STT. Hugging Face inference (Whisper) is convenient but will incur cost at scale.
+  - TTS: `gTTS` (free) or `pyttsx3` for offline. For higher-fidelity TTS consider paid vendors or Coqui.
+
+Queue & cost-control checklist (must keep queue in mind)
+- Always enqueue heavy jobs (image/video generation, long STT transcriptions) — do not perform them synchronously in request handlers.
+- Add `estimated_cost` metadata when creating a job: provider, model, parameters (size, duration), and conservative cost estimate in USD or credits.
+- Scheduler responsibilities:
+  - Check user/slug budget before dispatching to a paid provider.
+  - Throttle concurrency per provider to avoid burst spending.
+  - Retry with exponential backoff but abort and mark `failed` on repeated billing errors.
+- Monitoring & alerts:
+  - Emit per-job cost metrics to your observability system (Datadog/Prometheus).
+  - Add automated alerts for daily spend spikes or when cumulative monthly spend approaches budget.
+
+Queue-specific implementation notes for this repo
+- Files to update: add cost metadata within `queue/scheduler.js` and `queue/workerPool.js` when enqueuing and completing jobs.
+- Recommended job schema additions: `job_id`, `provider`, `model_id`, `estimated_cost_usd`, `estimated_credits`, `actual_cost_usd`, `started_at`, `completed_at`, `status`.
+
+How to populate numeric estimates
+1. Choose providers/models to bill for (list them).
+2. I can fetch current pricing pages and populate a mapping table (model_id → price rule) and add a small helper `utils/costEstimator.js` to compute `estimated_cost_usd` when creating jobs.
+
+Action items (pick one)
+- I will fetch live pricing pages and update this file with concrete per-model/credit prices and estimate examples.
+- Or I will implement `utils/costEstimator.js` and wire it into the queue so estimates are applied automatically.
+
+Notes
+- This document is a living snapshot (updated 2026-06-18). Provider prices change; always reconcile against provider billing.
+
