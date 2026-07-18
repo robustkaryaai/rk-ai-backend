@@ -2038,6 +2038,7 @@ app.get("/web/profile/:userId", async (req, res) => {
       
       if (plan !== "free") {
         subscriptions = [{
+          plan: plan,
           planId: plan,
           status: "active",
           currentPeriodEnd: expires
@@ -2045,11 +2046,17 @@ app.get("/web/profile/:userId", async (req, res) => {
       }
     }
 
+    const mappedSubscriptions = subscriptions.map(sub => ({
+      ...sub,
+      planId: sub.planId || sub.plan,
+      plan: sub.plan || sub.planId
+    }));
+
     return res.json({
       waitlist: waitlistReq.documents,
       orders: ordersReq.documents,
       preorders: preordersReq.documents,
-      subscriptions: subscriptions
+      subscriptions: mappedSubscriptions
     });
   } catch (err) {
     console.error("PROFILE ERROR:", err);
