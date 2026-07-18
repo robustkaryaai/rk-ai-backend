@@ -299,17 +299,24 @@ export async function createDatabaseUser(email, name, avatar) {
   );
 }
 
-export async function upgradeDatabaseUser(email, plan) {
+export async function upgradeDatabaseUser(email, plan, durationDays = 30) {
   const usersCollection = process.env.APPWRITE_USERS_COLLECTION || "users";
   const userDoc = await getDatabaseUserByEmail(email);
   if (!userDoc) throw new Error("User not found in database users collection");
+
+  const now = new Date();
+  let expiresAt = null;
+  if (plan !== "free") {
+    expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+  }
 
   await db.updateDocument(
     process.env.APPWRITE_DB_ID,
     usersCollection,
     userDoc.$id,
     {
-      plan: plan
+      plan: plan,
+      subscription_expires_at: expiresAt
     }
   );
 

@@ -7,6 +7,7 @@ import {
   upgradeDatabaseUser,
 } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { db } from "../../RK_AI_HOME/services/appwriteClient.js";
+import { ID } from "node-appwrite";
 
 const router = express.Router();
 
@@ -110,7 +111,7 @@ router.post("/upgrade", async (req, res) => {
     try {
       const targetEmail = email || slug;
       if (targetEmail) {
-        dbSlug = await upgradeDatabaseUser(targetEmail, plan);
+        dbSlug = await upgradeDatabaseUser(targetEmail, plan, duration);
         if (dbSlug) {
           finalDeviceSlug = dbSlug;
           logInfo(`[Billing] User ${targetEmail} upgraded to ${plan}. Linked device slug: ${finalDeviceSlug}`);
@@ -119,6 +120,26 @@ router.post("/upgrade", async (req, res) => {
     } catch (dbErr) {
       // Not fatal — user may not have a users collection entry yet
       logError(`[Billing] Could not update users collection for ${email || slug}:`, dbErr.message);
+    }
+
+    try {
+      // Sync subscription state to the frontend `subscriptions` collection
+      const targetUserId = email || slug;
+      if (targetUserId) {
+        await db.createDocument(
+          process.env.APPWRITE_DB_ID,
+          "subscriptions",
+          ID.unique(),
+          {
+            userId: targetUserId,
+            planId: plan,
+            status: "active",
+            currentPeriodEnd: new Date(Date.now() + duration * 24 * 60 * 60 * 1000).toISOString()
+          }
+        );
+      }
+    } catch (subErr) {
+      logError(`[Billing] Could not sync subscriptions collection:`, subErr.message);
     }
 
     logInfo(`[Billing] Upgrade request — plan: ${plan} | deviceSlug: ${finalDeviceSlug || "none (web user)"} | email: ${email || slug}`);
