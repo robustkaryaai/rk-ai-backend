@@ -8,7 +8,7 @@ import { createDocx } from "../../RK_AI_HOME/modules/docxGenerator.js";
 import { createPPT } from "../../RK_AI_HOME/modules/pptGenerator.js";
 import { getUserPlanBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { ensureLimitFile, getLimitsForTier } from "../../RK_AI_HOME/limitManager.js";
-import { cleanupSupabaseFiles } from "../../RK_AI_HOME/services/supabaseClient.js";
+import { cleanupSupabaseFiles, supabase } from "../../RK_AI_HOME/services/supabaseClient.js";
 
 const router = express.Router();
 
@@ -75,6 +75,12 @@ router.post("/generate/image", async (req, res) => {
     logInfo(`Desktop Image Generate: "${prompt}"`);
     const { tier, limits, storageMB } = await getTierAndLimits(slug);
     const result = await generateImage(prompt, slug, tier, storageMB);
+    
+    if (result.image) {
+      const { data } = supabase.storage.from(process.env.SUPABASE_BUCKET || "user-files").getPublicUrl(`${slug}/${result.image}`);
+      if (data && data.publicUrl) result.url = data.publicUrl;
+    }
+    
     return res.json({ ok: true, ...result });
   } catch (err) {
     logError("Desktop Image Generate Error:", err);
@@ -93,6 +99,12 @@ router.post("/generate/video", async (req, res) => {
     logInfo(`Desktop Video Generate: "${prompt}"`);
     const { tier, limits, storageMB } = await getTierAndLimits(slug);
     const result = await generateVideo(prompt, slug, tier, storageMB);
+    
+    if (result.video) {
+      const { data } = supabase.storage.from(process.env.SUPABASE_BUCKET || "user-files").getPublicUrl(`${slug}/${result.video}`);
+      if (data && data.publicUrl) result.url = data.publicUrl;
+    }
+    
     return res.json({ ok: true, ...result });
   } catch (err) {
     logError("Desktop Video Generate Error:", err);
