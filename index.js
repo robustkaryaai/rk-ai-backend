@@ -19,7 +19,7 @@ dotenv.config();
 // Helper to normalize slug to 9-digit string
 const normalizeSlug = (slug) => {
   if (!slug) return "";
-  const s = Number(slug);
+  const s = String(slug);
   return s.padStart(9, '0');
 };
 
