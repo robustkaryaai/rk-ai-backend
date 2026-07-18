@@ -73,7 +73,7 @@ export async function getUserPlanBySlug(slug) {
 
 export async function checkDeviceBySlug(slug) {
   const numSlug = Number(slug);
-  if (isNaN(numSlug)) throw new Error("Slug must be a valid number");
+  if (isNaN(numSlug)) return false; // Not a valid Appwrite number slug
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
