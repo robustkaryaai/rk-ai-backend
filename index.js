@@ -482,6 +482,8 @@ app.use("/rk-ai-desktop", desktopRouter);
 
 // Mount billing at top-level for legacy frontend routes that call /billing/*
 app.use("/billing", billingRouter);
+// Mount billing under the desktop prefix so /rk-ai-desktop/billing/upgrade works
+app.use("/rk-ai-desktop/billing", billingRouter);
 
 // ---------------- APPLY DEVICE VALIDATION TO ALL SUBSEQUENT ROUTES ----------------
 app.use(validateDevice);
