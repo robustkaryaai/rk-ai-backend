@@ -7,7 +7,7 @@ import knowledgeRouter from "./endpoints/knowledge.js";
 import billingRouter from "./endpoints/billing.js";
 import { createDesktopApiRouter } from "./api/router.js";
 import { createAppwritePlanService } from "./providers/appwritePlanService.js";
-import { createSupabaseDesktopStore } from "./providers/supabaseDesktopStore.js";
+import { createAppwriteDesktopStore } from "./providers/appwriteDesktopStore.js";
 import { createReasoningProvider } from "./providers/reasoningProvider.js";
 import { createDeviceBridgeRegistry } from "./device_bridge/registry.js";
 import { createDesktopMemoryService } from "./memory/service.js";
@@ -22,7 +22,7 @@ const desktopRouter = express.Router();
 const legacyRouter = express.Router();
 
 const planService = createAppwritePlanService();
-const store = createSupabaseDesktopStore();
+const store = createAppwriteDesktopStore();
 const bridge = createDeviceBridgeRegistry({ store });
 const memoryService = createDesktopMemoryService({ store });
 const planner = createDesktopPlanner({

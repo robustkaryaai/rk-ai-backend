@@ -49,7 +49,7 @@ export const DESKTOP_CONFIG = {
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
     bucket: process.env.RK_DESKTOP_SUPABASE_BUCKET || process.env.SUPABASE_BUCKET || "user-files",
     tableNames: {
-      jobs: process.env.RK_DESKTOP_TABLE_JOBS || "desktop_jobs",
+      jobs: process.env.RK_DESKTOP_TABLE_JOBS || "command",
       checkpoints: process.env.RK_DESKTOP_TABLE_CHECKPOINTS || "desktop_checkpoints",
       memories: process.env.RK_DESKTOP_TABLE_MEMORIES || "desktop_memories",
       experiences: process.env.RK_DESKTOP_TABLE_EXPERIENCES || "desktop_experiences",
