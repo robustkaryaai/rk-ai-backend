@@ -61,7 +61,7 @@ export async function getUserPlanBySlug(slug) {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
-    [Query.equal("slug", Number(slug))] // ✅ string slug
+    [Query.equal("slug", slug)] // ✅ string slug
   );
 
   if (!res.documents.length) {
@@ -75,7 +75,7 @@ export async function checkDeviceBySlug(slug) {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
-    [Query.equal("slug", Number(slug))]
+    [Query.equal("slug", slug)]
   );
 
   return res.documents.length > 0;
@@ -85,7 +85,7 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
-    [Query.equal("slug", Number(slug))]
+    [Query.equal("slug", slug)]
   );
 
   if (res.documents.length > 0) {
@@ -103,7 +103,7 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
   }
 
   const payload = {
-    slug: Number(slug),
+    slug: slug,
     subscription: "false",
     "subscription-tier": 0,
     name_of_device: "RK AI",
@@ -130,7 +130,7 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
         function: "ensureDeviceBySlug",
         action: "createDocument",
         culpritLine: "createDocument payload includes subscription_expires_at",
-        slug: Number(slug),
+        slug: slug,
         deviceType,
       },
       err,
