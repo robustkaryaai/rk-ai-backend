@@ -41,8 +41,8 @@ async function validateDevice(req, res, next) {
   
   // Get slug from params OR custom header
   const slug = req.params.slug || req.headers["x-device-slug"];
-  if (!slug) {
-    return res.status(401).json({ error: "Device slug required (via URL param or X-Device-Slug header)" });
+  if (!slug || slug === "undefined" || slug === "null" || slug.trim() === "") {
+    return res.status(401).json({ error: "Device slug required and must be valid (via URL param or X-Device-Slug header)" });
   }
   
   const normalizedSlug = normalizeSlug(slug);

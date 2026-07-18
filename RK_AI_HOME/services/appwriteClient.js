@@ -61,7 +61,7 @@ export async function getUserPlanBySlug(slug) {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
-    [Query.equal("slug", slug)] // ✅ string slug
+    [Query.equal("slug", Number(slug))] // ✅ string slug
   );
 
   if (!res.documents.length) {
@@ -72,10 +72,12 @@ export async function getUserPlanBySlug(slug) {
 }
 
 export async function checkDeviceBySlug(slug) {
+  const numSlug = Number(slug);
+  if (isNaN(numSlug)) throw new Error("Slug must be a valid number");
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
-    [Query.equal("slug", slug)]
+    [Query.equal("slug", numSlug)]
   );
 
   return res.documents.length > 0;
@@ -85,7 +87,7 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
-    [Query.equal("slug", slug)]
+    [Query.equal("slug", Number(slug))]
   );
 
   if (res.documents.length > 0) {
@@ -103,7 +105,7 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
   }
 
   const payload = {
-    slug: slug,
+    slug: Number(slug),
     subscription: "false",
     "subscription-tier": 0,
     name_of_device: "RK AI",
@@ -130,7 +132,7 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
         function: "ensureDeviceBySlug",
         action: "createDocument",
         culpritLine: "createDocument payload includes subscription_expires_at",
-        slug: slug,
+        slug: Number(slug),
         deviceType,
       },
       err,
@@ -291,7 +293,7 @@ export async function createDatabaseUser(email, name, avatar) {
       email: String(email),
       name: String(name || email.split("@")[0]),
       avatar: avatar || "",
-      slug: slug,
+      slug: Number(slug),
       plan: "free"
     }
   );
