@@ -116,7 +116,7 @@ router.post("/upgrade", async (req, res) => {
       return res.status(400).json({ ok: false, error: `Invalid plan. Valid options: ${Object.keys(PLANS).join(", ")}` });
     }
 
-    logInfo(`[Billing] Upgrade request — plan: ${plan} | deviceSlug: ${finalDeviceSlug} | userId: ${userId}`);
+    logInfo(`[Billing] Upgrade request — plan: ${plan} | deviceSlug: ${finalDeviceSlug} | email: ${email || slug}`);
 
     // ── Step 1: Ensure device exists ─────────────────────────────
     await ensureDeviceBySlug(finalDeviceSlug, "desktop");
