@@ -892,8 +892,29 @@ app.get("/desktop/profile/:userId", async (req, res) => {
     if (subscriptionsReq.documents.length > 0) {
       const sub = subscriptionsReq.documents[0];
       if (sub.status === "active") {
-        plan = sub.plan || "free";
-        expires = sub.expiresOn || sub.expiresAt || null;
+        plan = sub.planId || sub.plan || "free";
+        expires = sub.currentPeriodEnd || sub.expiresOn || sub.expiresAt || null;
+      }
+    }
+    
+    // Fallback for legacy upgrades (users collection)
+    if (plan === "free") {
+      try {
+        const userDoc = await getDatabaseUserByEmail(userId);
+        if (userDoc && userDoc.plan && userDoc.plan !== "free") {
+          plan = userDoc.plan;
+          expires = userDoc.subscription_expires_at || null;
+        }
+      } catch (e) {
+        // Fallback for legacy upgrades (devices collection)
+        try {
+          const deviceDoc = await getUserPlanBySlug(userId);
+          if (deviceDoc && deviceDoc.subscription === "true") {
+            const tiers = { 0: "free", 1: "pro", 2: "elite", 3: "quantum", 4: "infinity" };
+            plan = tiers[deviceDoc["subscription-tier"]] || "free";
+            expires = deviceDoc.subscription_expires_at || null;
+          }
+        } catch (e2) {}
       }
     }
     
@@ -1988,11 +2009,43 @@ app.get("/web/profile/:userId", async (req, res) => {
       db.listDocuments(process.env.APPWRITE_DB_ID, "subscriptions", [Query.equal("userId", userId), Query.orderDesc("$createdAt"), Query.limit(1)]).catch(() => ({ documents: [] }))
     ]);
 
+    let subscriptions = subscriptionsReq.documents;
+    
+    // Fallback for legacy upgrades if subscriptions is empty
+    if (subscriptions.length === 0) {
+      let plan = "free";
+      let expires = null;
+      try {
+        const userDoc = await getDatabaseUserByEmail(userId);
+        if (userDoc && userDoc.plan && userDoc.plan !== "free") {
+          plan = userDoc.plan;
+          expires = userDoc.subscription_expires_at || null;
+        }
+      } catch (e) {
+        try {
+          const deviceDoc = await getUserPlanBySlug(userId);
+          if (deviceDoc && deviceDoc.subscription === "true") {
+            const tiers = { 0: "free", 1: "pro", 2: "elite", 3: "quantum", 4: "infinity" };
+            plan = tiers[deviceDoc["subscription-tier"]] || "free";
+            expires = deviceDoc.subscription_expires_at || null;
+          }
+        } catch (e2) {}
+      }
+      
+      if (plan !== "free") {
+        subscriptions = [{
+          planId: plan,
+          status: "active",
+          currentPeriodEnd: expires
+        }];
+      }
+    }
+
     return res.json({
       waitlist: waitlistReq.documents,
       orders: ordersReq.documents,
       preorders: preordersReq.documents,
-      subscriptions: subscriptionsReq.documents
+      subscriptions: subscriptions
     });
   } catch (err) {
     console.error("PROFILE ERROR:", err);
