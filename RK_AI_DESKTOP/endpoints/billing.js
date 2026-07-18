@@ -112,6 +112,9 @@ router.post("/upgrade", async (req, res) => {
     if (!finalDeviceSlug) {
       return res.status(400).json({ ok: false, error: "Device slug is required" });
     }
+    if (isNaN(Number(finalDeviceSlug))) {
+      return res.status(404).json({ ok: false, error: "Device not found for this account. Ensure you have a registered device." });
+    }
     if (!PLANS[plan]) {
       return res.status(400).json({ ok: false, error: `Invalid plan. Valid options: ${Object.keys(PLANS).join(", ")}` });
     }

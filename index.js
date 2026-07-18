@@ -34,7 +34,8 @@ async function validateDevice(req, res, next) {
     req.path.startsWith("/auth/google") ||
     req.path.startsWith("/auth/spotify") ||
     req.path.startsWith("/web/") ||
-    req.path === "/rk-ai-desktop/health"
+    req.path === "/rk-ai-desktop/health" ||
+    req.path === "/rk-ai-desktop/billing/upgrade"
   ) {
     return next();
   }
@@ -2163,7 +2164,7 @@ app.get("/waitlist/stats", (req, res) => {
   return app._router.handle(req, res, () => { });
 });
 
-// 🚀 START TRIAL (Device-based tracking)
+
 app.post("/device/:slug/trial", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
