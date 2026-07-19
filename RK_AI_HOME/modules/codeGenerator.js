@@ -38,7 +38,7 @@ export async function generateAndZipCode(prompt, slug, interaction_id, tier = "f
     
     // 1. Generate Blueprint
     const blueprintPrompt = `${prompt}\n\nDesign the complete project architecture.`;
-    let blueprintText = await callGemini(BLUEPRINT_PROMPT, "", blueprintPrompt, 2, null, customModel);
+    let blueprintText = await callGemini(BLUEPRINT_PROMPT, "", blueprintPrompt, 50, null, customModel);
     blueprintText = blueprintText.trim();
     const firstB = blueprintText.indexOf('{');
     const lastB = blueprintText.lastIndexOf('}');
@@ -85,7 +85,7 @@ Description: ${fileObj.description}
 `;
         
         try {
-            let fileText = await callGemini(FILE_GENERATION_PROMPT, "", contextPrompt, 5, null, customModel);
+            let fileText = await callGemini(FILE_GENERATION_PROMPT, "", contextPrompt, 50, null, customModel);
             fileText = fileText.trim();
             const f1 = fileText.indexOf('{');
             const f2 = fileText.lastIndexOf('}');

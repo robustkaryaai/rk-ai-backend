@@ -87,7 +87,7 @@ ${userPrompt}
       return `Custom AI Error: ${msg.includes("401") ? "Invalid API Key" : msg}`;
     }
 
-    // ✅ Auto switch and delay on quota/rate limits for system keys
+    // ✅ Auto switch and delay on quota/rate limits or 503s for system keys
     if (
       msg.includes("503") ||
       msg.includes("overloaded") ||
@@ -97,11 +97,11 @@ ${userPrompt}
       msg.includes("exhausted") ||
       msg.includes("rate")
     ) {
-      logError("⚠ Gemini overloaded. Switching API Key and waiting 35 seconds to cool down...");
+      logError("⚠ Gemini overloaded/busy. Switching API Key and waiting 60 seconds to cool down (Never Give Up Mode)...");
       switchApiKey();
       
-      // The user explicitly noted we can afford a delay, so wait 35 seconds to clear the rate limit window
-      await new Promise(r => setTimeout(r, 35000));
+      // Wait 60 seconds to completely clear any rate limits or server spikes
+      await new Promise(r => setTimeout(r, 60000));
 
       if (retries > 0) {
         return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, customModel);
