@@ -310,12 +310,15 @@ export async function upgradeDatabaseUser(email, plan, durationDays = 30) {
     expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000).toISOString();
   }
 
+  const appwritePlanMap = { free: "free", pro: "core", elite: "apex" };
+  const dbPlan = appwritePlanMap[plan] || "free";
+
   await db.updateDocument(
     process.env.APPWRITE_DB_ID,
     usersCollection,
     userDoc.$id,
     {
-      plan: plan
+      plan: dbPlan
     }
   );
 

@@ -128,13 +128,15 @@ router.post("/upgrade", async (req, res) => {
       // Sync subscription state to the frontend `subscriptions` collection
       const targetUserId = email || slug;
       if (targetUserId) {
+        const appwritePlanMap = { free: "free", pro: "core", elite: "apex" };
+        const dbPlan = appwritePlanMap[plan] || "free";
         await db.createDocument(
           process.env.APPWRITE_DB_ID,
           "subscriptions",
           ID.unique(),
           {
             userId: targetUserId,
-            plan: plan,
+            plan: dbPlan,
             status: "active"
           }
         );

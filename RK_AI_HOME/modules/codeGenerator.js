@@ -1,7 +1,9 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import archiver from "archiver";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const archiver = require("archiver");
 import { v4 as uuidv4 } from "uuid";
 import { callGemini } from "../services/gemini.js";
 import { supabase } from "../services/supabaseClient.js";
