@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { Archiver } from "archiver";
+import { ZipArchive } from "archiver";
 import { v4 as uuidv4 } from "uuid";
 import { callGemini } from "../services/gemini.js";
 import { supabase } from "../services/supabaseClient.js";
@@ -115,7 +115,7 @@ export async function generateAndZipCode(prompt, slug) {
     const zipFilePath = path.join(os.tmpdir(), `${projectId}.zip`);
     await new Promise((resolve, reject) => {
       const output = fs.createWriteStream(zipFilePath);
-      const archive = new Archiver("zip", { zlib: { level: 9 } });
+      const archive = new ZipArchive({ zlib: { level: 9 } });
 
       output.on("close", () => resolve());
       archive.on("error", (err) => reject(err));
