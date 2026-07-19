@@ -1,5 +1,6 @@
 import path from "path";
 import { logError } from "../../utils/logger.js";
+import { createRequire } from "module";
 
 // Lazy load parsers so missing ones don't crash the server at boot
 let pdfParse = null;
@@ -35,7 +36,9 @@ export class Parser {
   static async parsePdf(buffer) {
     if (!pdfParse) {
       try {
-        pdfParse = (await import("pdf-parse")).default || (await import("pdf-parse"));
+        const require = createRequire(import.meta.url);
+        const mod = require("pdf-parse");
+        pdfParse = typeof mod === "function" ? mod : mod.default;
       } catch (err) {
         throw new Error("pdf-parse is not installed. Run 'npm install pdf-parse'");
       }
