@@ -147,7 +147,10 @@ router.post("/generate/ppt", async (req, res) => {
   }
 });
 
-// Generate Code Project (.zip)
+// In-memory job store (in production, use Redis/DB)
+global.activeJobs = global.activeJobs || {};
+
+// Generate Code Project (.zip) - ASYNC
 router.post("/generate/code", async (req, res) => {
   try {
     const { prompt, slug } = req.body;
@@ -158,14 +161,48 @@ router.post("/generate/code", async (req, res) => {
     logInfo(`Desktop Code Generate: "${prompt}"`);
     const { tier, limits, storageMB } = await getTierAndLimits(slug);
     
-    const result = await generateAndZipCode(prompt, slug);
-    return res.json({ ok: true, ...result });
+    const interaction_id = "interaction_" + Date.now();
+    global.activeJobs[interaction_id] = { status: "RUNNING", progress: 0 };
+
+    // Fire and forget
+    generateAndZipCode(prompt, slug, interaction_id).then(result => {
+       if (result.token_limit) {
+           global.activeJobs[interaction_id] = { status: "TOKEN_LIMIT", reason: result.reason, zip_url: result.url, completed_files: result.completed_files, remaining_files: result.remaining_files };
+       } else {
+           global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: result };
+       }
+    }).catch(err => {
+       logError("Background Job Error:", err);
+       global.activeJobs[interaction_id] = { status: "FAILED", error: err.message };
+    });
+
+    return res.json({ 
+       ok: true, 
+       interaction_id, 
+       estimated_time: 120, 
+       status: "RUNNING",
+       message: "I'm building your project in the background. You can continue chatting while I work."
+    });
   } catch (err) {
     logError("Desktop Code Generate Error:", err);
     return res.status(500).json({ ok: false, error: "Code generation failed: " + err.message });
   }
 });
 
+router.get("/generate/status/:interaction_id", async (req, res) => {
+   const job = global.activeJobs[req.params.interaction_id];
+   if (!job) return res.status(404).json({ ok: false, error: "Job not found" });
+   
+   if (job.status === "RUNNING") {
+       return res.json({ status: "RUNNING", recommended_next_check_seconds: 15 });
+   } else if (job.status === "COMPLETED") {
+       return res.json({ status: "COMPLETED", artifact: job.artifact });
+   } else if (job.status === "TOKEN_LIMIT") {
+       return res.json({ status: "TOKEN_LIMIT", reason: job.reason, zip_url: job.zip_url, completed_files: job.completed_files, remaining_files: job.remaining_files });
+   } else {
+       return res.json({ status: job.status, error: job.error });
+   }
+});
 // Think tool (Escalated Reasoning)
 router.post("/think", async (req, res) => {
   try {
