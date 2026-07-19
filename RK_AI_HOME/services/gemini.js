@@ -112,3 +112,28 @@ ${userPrompt}
     return "Servers are busy right now. Please try again in a few moments.";
   }
 }
+
+export async function callGeminiVision(prompt, imageBuffer, mimeType, customApiKey = null, customModel = null) {
+  try {
+    const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
+    const modelToUse = customModel || "gemini-2.5-flash"; 
+
+    const response = await currentGenAI.models.generateContent({
+      model: modelToUse,
+      contents: [
+        {
+            role: 'user',
+            parts: [
+                { text: prompt },
+                { inlineData: { data: imageBuffer.toString("base64"), mimeType: mimeType } }
+            ]
+        }
+      ]
+    });
+    
+    return response.text ?? "";
+  } catch (err) {
+    logError("❌ Gemini Vision Error:", err);
+    return `Cloud Vision Error: ${err.message}`;
+  }
+}

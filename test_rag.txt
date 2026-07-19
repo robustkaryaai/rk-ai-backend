@@ -1,0 +1,3 @@
+This is a secure document about robust karya artificial intelligence.
+The RAG pipeline extracts semantic meaning using transformer embeddings.
+When querying for secure document, this chunk should be returned.

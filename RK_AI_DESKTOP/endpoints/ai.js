@@ -10,8 +10,11 @@ import { generateAndZipCode } from "../../RK_AI_HOME/modules/codeGenerator.js";
 import { getUserPlanBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { ensureLimitFile, getLimitsForTier, checkAndConsume } from "../../RK_AI_HOME/limitManager.js";
 import { cleanupSupabaseFiles, supabase } from "../../RK_AI_HOME/services/supabaseClient.js";
+import { callGeminiVision } from "../../RK_AI_HOME/services/gemini.js";
+import multer from "multer";
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Helper to get tier and limits for a slug
 async function getTierAndLimits(slug) {
@@ -62,6 +65,24 @@ router.post("/generate", async (req, res) => {
   } catch (err) {
     logError("Desktop AI Generate Error:", err);
     return res.status(500).json({ ok: false, error: "AI generation failed" });
+  }
+});
+
+// Vision endpoint for Gemini
+router.post("/vision", upload.single("image"), async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt || !req.file) {
+      return res.status(400).json({ ok: false, error: "Prompt and image required" });
+    }
+
+    logInfo(`Desktop AI Vision: Processing image for prompt: "${prompt.substring(0, 50)}..."`);
+    
+    const result = await callGeminiVision(prompt, req.file.buffer, req.file.mimetype);
+    return res.json({ ok: true, response: result });
+  } catch (err) {
+    logError("Desktop AI Vision Error:", err);
+    return res.status(500).json({ ok: false, error: "AI vision failed" });
   }
 });
 
