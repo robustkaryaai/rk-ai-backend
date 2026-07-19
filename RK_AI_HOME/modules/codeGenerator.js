@@ -84,25 +84,35 @@ Write the complete code for: ${fileObj.path}
 Description: ${fileObj.description}
 `;
         
-        try {
-            let fileText = await callGemini(FILE_GENERATION_PROMPT, "", contextPrompt, 50, null, customModel);
-            fileText = fileText.trim();
-            const f1 = fileText.indexOf('{');
-            const f2 = fileText.lastIndexOf('}');
-            if (f1 !== -1 && f2 !== -1) {
-              fileText = fileText.slice(f1, f2 + 1);
+        let fileParseSuccess = false;
+        let parseAttempts = 0;
+        
+        while (!fileParseSuccess && parseAttempts < 3) {
+            parseAttempts++;
+            try {
+                let fileText = await callGemini(FILE_GENERATION_PROMPT, "", contextPrompt, 50, null, customModel);
+                fileText = fileText.trim();
+                const f1 = fileText.indexOf('{');
+                const f2 = fileText.lastIndexOf('}');
+                if (f1 !== -1 && f2 !== -1) {
+                  fileText = fileText.slice(f1, f2 + 1);
+                }
+                
+                const fileData = JSON.parse(fileText);
+                if (fileData.content) {
+                     const safePath = path.normalize(fileObj.path).replace(/^(\.\.(\/|\\|$))+/, "");
+                     const fullPath = path.join(tempDir, safePath);
+                     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+                     fs.writeFileSync(fullPath, fileData.content, "utf8");
+                     generatedFiles.push({ path: fileObj.path, content: fileData.content });
+                     fileParseSuccess = true;
+                }
+            } catch (e) {
+                logError(`File generation parse failed for ${fileObj.path} (Attempt ${parseAttempts}/3): ${e.message}`);
+                if (parseAttempts < 3) {
+                    await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds before retrying parse
+                }
             }
-            
-            const fileData = JSON.parse(fileText);
-            if (fileData.content) {
-                 const safePath = path.normalize(fileObj.path).replace(/^(\.\.(\/|\\|$))+/, "");
-                 const fullPath = path.join(tempDir, safePath);
-                 fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-                 fs.writeFileSync(fullPath, fileData.content, "utf8");
-                 generatedFiles.push({ path: fileObj.path, content: fileData.content });
-            }
-        } catch (e) {
-            logError(`File generation parse failed for ${fileObj.path}: ${e.message}`);
         }
         
         completedCount++;
