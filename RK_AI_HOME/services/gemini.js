@@ -65,7 +65,7 @@ ${userPrompt}
 
     // Use custom API key and model if provided, otherwise fallback to system default
     const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
-    const modelToUse = customModel || "gemini-3.1-flash-lite-preview"; // 🚀 Default to 3.1-flash-lite-preview for speed
+    const modelToUse = customModel || "gemini-2.5-flash-lite"; // Default to 2.5-flash-lite
 
     const response = await currentGenAI.models.generateContent({
       model: modelToUse,
@@ -81,20 +81,30 @@ ${userPrompt}
     // If using custom API key, don't retry with system keys as it might violate user privacy/choice
     if (customApiKey) {
       logError("❌ Gemini custom key failure:", msg);
+      if (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted")) {
+          return "Custom AI Error: Your personal API Key has run out of quota.";
+      }
       return `Custom AI Error: ${msg.includes("401") ? "Invalid API Key" : msg}`;
     }
 
-    // ✅ Auto switch on 503 or suspension for system keys
+    // ✅ Auto switch and delay on quota/rate limits for system keys
     if (
       msg.includes("503") ||
       msg.includes("overloaded") ||
-      msg.includes("suspended")
+      msg.includes("suspended") ||
+      msg.includes("429") ||
+      msg.includes("quota") ||
+      msg.includes("exhausted") ||
+      msg.includes("rate")
     ) {
-      logError("⚠ Gemini failed. Switching API Key...");
+      logError("⚠ Gemini overloaded. Switching API Key and waiting 35 seconds to cool down...");
       switchApiKey();
+      
+      // The user explicitly noted we can afford a delay, so wait 35 seconds to clear the rate limit window
+      await new Promise(r => setTimeout(r, 35000));
 
       if (retries > 0) {
-        return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1);
+        return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, customModel);
       }
     }
 

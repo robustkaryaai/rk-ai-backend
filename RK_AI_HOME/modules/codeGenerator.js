@@ -26,13 +26,19 @@ Structure:
   "content": "Full code for the file. No placeholders. No truncation."
 }`;
 
-export async function generateAndZipCode(prompt, slug, interaction_id) {
+export async function generateAndZipCode(prompt, slug, interaction_id, tier = "free") {
+    // Select model based on tier
+    let customModel = "gemini-2.5-flash-lite"; // Free and Pro
+    if (tier === "elite" || tier === "quantum") {
+        customModel = "gemini-3.1-flash-lite-preview";
+    }
+
   try {
-    logInfo(`[Code Generator] Generating blueprint for: "${prompt}"`);
+    logInfo(`[Code Generator] Generating blueprint for: "${prompt}" [Tier: ${tier}]`);
     
     // 1. Generate Blueprint
     const blueprintPrompt = `${prompt}\n\nDesign the complete project architecture.`;
-    let blueprintText = await callGemini(BLUEPRINT_PROMPT, "", blueprintPrompt);
+    let blueprintText = await callGemini(BLUEPRINT_PROMPT, "", blueprintPrompt, 2, null, customModel);
     blueprintText = blueprintText.trim();
     const firstB = blueprintText.indexOf('{');
     const lastB = blueprintText.lastIndexOf('}');
@@ -59,18 +65,14 @@ export async function generateAndZipCode(prompt, slug, interaction_id) {
     const tempDir = path.join(os.tmpdir(), projectId);
     fs.mkdirSync(tempDir, { recursive: true });
 
-    // 2. Parallel File Generation
-    // We process in small batches to respect RPM / concurrency limits
-    const maxConcurrent = 5; 
+    // 2. Sequential File Generation (Strict 15 RPM limit for Gemini Free Tier)
     let generatedFiles = [];
     let completedCount = 0;
     
-    // Create a generic queue execution
-    for (let i = 0; i < blueprint.files.length; i += maxConcurrent) {
-        const batch = blueprint.files.slice(i, i + maxConcurrent);
+    for (let i = 0; i < blueprint.files.length; i++) {
+        const fileObj = blueprint.files[i];
         
-        const batchPromises = batch.map(async (fileObj) => {
-            const contextPrompt = `
+        const contextPrompt = `
 Overall Project Requirements:
 ${prompt}
 
@@ -81,8 +83,9 @@ Your Task:
 Write the complete code for: ${fileObj.path}
 Description: ${fileObj.description}
 `;
-            
-            let fileText = await callGemini(FILE_GENERATION_PROMPT, "", contextPrompt);
+        
+        try {
+            let fileText = await callGemini(FILE_GENERATION_PROMPT, "", contextPrompt, 5, null, customModel);
             fileText = fileText.trim();
             const f1 = fileText.indexOf('{');
             const f2 = fileText.lastIndexOf('}');
@@ -90,36 +93,28 @@ Description: ${fileObj.description}
               fileText = fileText.slice(f1, f2 + 1);
             }
             
-            try {
-              const fileData = JSON.parse(fileText);
-              if (fileData.content) {
-                 return { path: fileObj.path, content: fileData.content };
-              }
-            } catch (e) {
-              logError(`File generation parse failed for ${fileObj.path}`);
+            const fileData = JSON.parse(fileText);
+            if (fileData.content) {
+                 const safePath = path.normalize(fileObj.path).replace(/^(\.\.(\/|\\|$))+/, "");
+                 const fullPath = path.join(tempDir, safePath);
+                 fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+                 fs.writeFileSync(fullPath, fileData.content, "utf8");
+                 generatedFiles.push({ path: fileObj.path, content: fileData.content });
             }
-            return { path: fileObj.path, content: `// Failed to generate ${fileObj.path}` };
-        });
-
-        const results = await Promise.all(batchPromises);
-        results.forEach(file => {
-           if (file.path && file.content) {
-             const safePath = path.normalize(file.path).replace(/^(\.\.(\/|\\|$))+/, "");
-             const fullPath = path.join(tempDir, safePath);
-             fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-             fs.writeFileSync(fullPath, file.content, "utf8");
-             generatedFiles.push(file);
-           }
-        });
+        } catch (e) {
+            logError(`File generation parse failed for ${fileObj.path}: ${e.message}`);
+        }
         
-        completedCount += batch.length;
+        completedCount++;
         if (global.activeJobs && global.activeJobs[interaction_id]) {
             global.activeJobs[interaction_id].progress = Math.floor((completedCount / blueprint.files.length) * 100);
         }
         
-        // Respect potential Token Limit or RPM here if implemented.
-        // For now, small delay to avoid Google 429 Too Many Requests
-        await new Promise(r => setTimeout(r, 2000));
+        // Strict rate limit enforcement (15 RPM = 1 request per 4 seconds)
+        // Wait 4100ms before requesting the next file
+        if (i < blueprint.files.length - 1) {
+            await new Promise(r => setTimeout(r, 4100));
+        }
     }
 
     // 3. Zip the files

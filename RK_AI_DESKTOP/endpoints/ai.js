@@ -8,7 +8,7 @@ import { createDocx } from "../../RK_AI_HOME/modules/docxGenerator.js";
 import { createPPT } from "../../RK_AI_HOME/modules/pptGenerator.js";
 import { generateAndZipCode } from "../../RK_AI_HOME/modules/codeGenerator.js";
 import { getUserPlanBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
-import { ensureLimitFile, getLimitsForTier } from "../../RK_AI_HOME/limitManager.js";
+import { ensureLimitFile, getLimitsForTier, checkAndConsume } from "../../RK_AI_HOME/limitManager.js";
 import { cleanupSupabaseFiles, supabase } from "../../RK_AI_HOME/services/supabaseClient.js";
 
 const router = express.Router();
@@ -161,11 +161,22 @@ router.post("/generate/code", async (req, res) => {
     logInfo(`Desktop Code Generate: "${prompt}"`);
     const { tier, limits, storageMB } = await getTierAndLimits(slug);
     
+    // NO MERCY QUOTA ENFORCEMENT
+    // Full-stack code generation is extremely expensive. Charge 100,000 tokens flat upfront.
+    const quotaCheck = await checkAndConsume(slug, tier, "tokens", 100000);
+    if (!quotaCheck.ok) {
+        logError(`❌ QUOTA EXCEEDED for ${slug}: Tried to use 100000 tokens but only ${quotaCheck.allowed - quotaCheck.used} left.`);
+        return res.status(403).json({ 
+            ok: false, 
+            error: "RK AI Quota Exceeded. You do not have enough tokens remaining to build a full-stack project. Upgrade your plan or wait for the reset." 
+        });
+    }
+
     const interaction_id = "interaction_" + Date.now();
     global.activeJobs[interaction_id] = { status: "RUNNING", progress: 0 };
 
     // Fire and forget
-    generateAndZipCode(prompt, slug, interaction_id).then(result => {
+    generateAndZipCode(prompt, slug, interaction_id, tier).then(result => {
        if (result.token_limit) {
            global.activeJobs[interaction_id] = { status: "TOKEN_LIMIT", reason: result.reason, zip_url: result.url, completed_files: result.completed_files, remaining_files: result.remaining_files };
        } else {
