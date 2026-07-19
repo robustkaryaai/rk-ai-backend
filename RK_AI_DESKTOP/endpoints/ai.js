@@ -6,6 +6,7 @@ import { generateImage } from "../../RK_AI_HOME/modules/imageGenerator.js";
 import { generateVideo } from "../../RK_AI_HOME/modules/videoGenerator.js";
 import { createDocx } from "../../RK_AI_HOME/modules/docxGenerator.js";
 import { createPPT } from "../../RK_AI_HOME/modules/pptGenerator.js";
+import { generateAndZipCode } from "../../RK_AI_HOME/modules/codeGenerator.js";
 import { getUserPlanBySlug } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { ensureLimitFile, getLimitsForTier } from "../../RK_AI_HOME/limitManager.js";
 import { cleanupSupabaseFiles, supabase } from "../../RK_AI_HOME/services/supabaseClient.js";
@@ -143,6 +144,47 @@ router.post("/generate/ppt", async (req, res) => {
   } catch (err) {
     logError("Desktop PPT Generate Error:", err);
     return res.status(500).json({ ok: false, error: "PPT generation failed" });
+  }
+});
+
+// Generate Code Project (.zip)
+router.post("/generate/code", async (req, res) => {
+  try {
+    const { prompt, slug } = req.body;
+    if (!prompt || !slug) {
+      return res.status(400).json({ ok: false, error: "Prompt and slug required" });
+    }
+
+    logInfo(`Desktop Code Generate: "${prompt}"`);
+    const { tier, limits, storageMB } = await getTierAndLimits(slug);
+    
+    const result = await generateAndZipCode(prompt, slug);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    logError("Desktop Code Generate Error:", err);
+    return res.status(500).json({ ok: false, error: "Code generation failed" });
+  }
+});
+
+// Think tool (Escalated Reasoning)
+router.post("/think", async (req, res) => {
+  try {
+    const { prompt, slug } = req.body;
+    if (!prompt || !slug) {
+      return res.status(400).json({ ok: false, error: "Prompt and slug required" });
+    }
+
+    logInfo(`Desktop Think Request from slug ${slug}`);
+    
+    // We reuse the callGemini function from our existing services
+    const result = await callGemini(
+      `You are the "Think" module for a local AI agent. Provide a detailed, step-by-step reasoning or architectural plan for the following request. Return ONLY the plan, no extra conversational filler.\n\nRequest: ${prompt}`
+    );
+    
+    return res.json({ ok: true, response: result });
+  } catch (err) {
+    logError("Desktop Think Error:", err);
+    return res.status(500).json({ ok: false, error: "Think module failed to generate reasoning" });
   }
 });
 
