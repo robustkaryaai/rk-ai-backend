@@ -78,10 +78,11 @@ export async function generateAndZipCode(prompt, slug) {
     
     // Clean up response if it accidentally included markdown formatting
     responseText = responseText.trim();
-    if (responseText.startsWith("```json")) {
-      responseText = responseText.replace(/^```json/, "").replace(/```$/, "").trim();
-    } else if (responseText.startsWith("```")) {
-      responseText = responseText.replace(/^```/, "").replace(/```$/, "").trim();
+    // Robust JSON extraction
+    const firstBrace = responseText.indexOf('{');
+    const lastBrace = responseText.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      responseText = responseText.slice(firstBrace, lastBrace + 1);
     }
     
     let parsedData;

@@ -162,7 +162,7 @@ router.post("/generate/code", async (req, res) => {
     return res.json({ ok: true, ...result });
   } catch (err) {
     logError("Desktop Code Generate Error:", err);
-    return res.status(500).json({ ok: false, error: "Code generation failed" });
+    return res.status(500).json({ ok: false, error: "Code generation failed: " + err.message });
   }
 });
 
