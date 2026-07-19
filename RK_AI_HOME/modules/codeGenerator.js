@@ -161,13 +161,22 @@ Description: ${fileObj.description}
     const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(`${slug}/${fileName}`);
     const publicUrl = urlData?.publicUrl;
 
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.unlinkSync(zipFilePath);
-
     return { url: publicUrl, fileCount: generatedFiles.length };
     
   } catch (err) {
     logError("[Code Generator] Error:", err);
     throw err;
+  } finally {
+    // ALWAYS clean up temp files to prevent disk leak
+    try {
+        if (typeof tempDir !== 'undefined' && fs.existsSync(tempDir)) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+        if (typeof zipFilePath !== 'undefined' && fs.existsSync(zipFilePath)) {
+            fs.unlinkSync(zipFilePath);
+        }
+    } catch (cleanupErr) {
+        logError("[Code Generator] Cleanup Error:", cleanupErr);
+    }
   }
 }
