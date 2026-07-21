@@ -45,6 +45,8 @@ router.post("/generate", async (req, res) => {
     }
 
     logInfo(`Desktop AI Generate: Using model ${model || "default"}`);
+    
+    const slug = req.headers["x-device-slug"] || null;
 
     if (stream) {
       // Set headers for streaming
@@ -55,11 +57,11 @@ router.post("/generate", async (req, res) => {
       });
 
       // Call our existing Gemini service
-      const result = await callGemini(prompt);
+      const result = await callGemini(prompt, [], "", 2, null, null, slug);
       res.write(result);
       res.end();
     } else {
-      const result = await callGemini(prompt);
+      const result = await callGemini(prompt, [], "", 2, null, null, slug);
       return res.json({ ok: true, response: result });
     }
   } catch (err) {
@@ -78,10 +80,12 @@ router.post("/vision", upload.single("image"), async (req, res) => {
 
     logInfo(`Desktop AI Vision: Processing image for prompt: "${prompt.substring(0, 50)}..."`);
     
-    const result = await callGeminiVision(prompt, req.file.buffer, req.file.mimetype);
+    const slug = req.headers["x-device-slug"] || null;
+    const result = await callGeminiVision(prompt, req.file.buffer, req.file.mimetype, null, null, slug);
+
     return res.json({ ok: true, response: result });
   } catch (err) {
-    logError("Desktop AI Vision Error:", err);
+    logError("Desktop Vision Error:", err);
     return res.status(500).json({ ok: false, error: "AI vision failed" });
   }
 });

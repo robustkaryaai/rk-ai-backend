@@ -1,9 +1,11 @@
 import path from "path";
-import { logError } from "../../utils/logger.js";
-import { createRequire } from "module";
+import fs from "fs";
+import os from "os";
+import { logError, logInfo } from "../../utils/logger.js";
+import { GoogleGenAI } from "@google/genai";
+import dotenv from "dotenv";
 
-// Lazy load parsers so missing ones don't crash the server at boot
-let pdfParse = null;
+dotenv.config();
 
 export class Parser {
   /**
@@ -17,12 +19,11 @@ export class Parser {
     
     try {
       if (ext === ".pdf") {
-        return await this.parsePdf(buffer);
+        return await this.parsePdf(buffer, filename);
       } else if ([".txt", ".md", ".csv", ".json"].includes(ext)) {
         return buffer.toString("utf-8");
       } else if (ext === ".docx") {
         return "DOCX extraction not implemented yet.";
-        // In the future: const mammoth = await import("mammoth"); return (await mammoth.extractRawText({buffer})).value;
       } else {
         // Fallback: try reading as plain text
         return buffer.toString("utf-8");
@@ -33,17 +34,64 @@ export class Parser {
     }
   }
 
-  static async parsePdf(buffer) {
-    if (!pdfParse) {
+  static async parsePdf(buffer, filename) {
+    // Hybrid Approach: Small PDFs parsed locally to save API quota, Heavy PDFs sent to Gemini to prevent OOM
+    const FILE_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB
+
+    if (buffer.length < FILE_SIZE_LIMIT) {
+      logInfo(`[Knowledge Parser] File ${filename} is ${Math.round(buffer.length/1024)}KB (< 5MB). Parsing locally.`);
+      const require = createRequire(import.meta.url);
+      let pdfParse;
       try {
-        const require = createRequire(import.meta.url);
         const mod = require("pdf-parse");
         pdfParse = typeof mod === "function" ? mod : mod.default;
+        const data = await pdfParse(buffer);
+        return data.text;
       } catch (err) {
-        throw new Error("pdf-parse is not installed. Run 'npm install pdf-parse'");
+        logError("[Knowledge Parser] Local pdf-parse failed, falling back to Gemini:", err);
+        // Fallthrough to Gemini
+      }
+    } else {
+      logInfo(`[Knowledge Parser] File ${filename} is massive (${Math.round(buffer.length/1024/1024)}MB). Delegating to Gemini to prevent OOM.`);
+    }
+
+    const tempPath = path.join(os.tmpdir(), `${Date.now()}_${filename}`);
+    fs.writeFileSync(tempPath, buffer);
+
+    try {
+      if (!process.env.GEMINI_API_KEY) {
+         throw new Error("No GEMINI_API_KEY set. Cannot parse massive PDF via Gemini.");
+      }
+      
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+      // Upload directly to Gemini to bypass Node.js RAM limits
+      const uploadResult = await ai.files.upload({
+        file: tempPath,
+        mimeType: "application/pdf"
+      });
+
+      // Extract raw text using Flash Lite
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-lite",
+        contents: [
+          uploadResult,
+          "Extract all text from this document sequentially. Output ONLY the exact raw text verbatim, nothing else. Do not summarize or format."
+        ]
+      });
+
+      // Explicitly delete from Gemini to save user storage space
+      try {
+        await ai.files.delete({ name: uploadResult.name });
+      } catch (delErr) {
+        logError("[Knowledge Parser] Failed to delete file from Gemini:", delErr);
+      }
+      
+      return response.text;
+    } finally {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
       }
     }
-    const data = await pdfParse(buffer);
-    return data.text;
   }
 }

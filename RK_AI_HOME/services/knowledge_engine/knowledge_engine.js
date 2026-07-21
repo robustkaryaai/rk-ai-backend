@@ -24,6 +24,17 @@ export class KnowledgeEngine {
     try {
       logInfo(`[KnowledgeEngine] Starting background indexing for ${filename} (${slug})`);
       
+      const fileHash = crypto.createHash("md5").update(buffer).digest("hex");
+      const vectorStore = Retriever.getVectorStore();
+      
+      if (vectorStore.documentExists) {
+        const exists = await vectorStore.documentExists(fileHash, slug);
+        if (exists) {
+          logInfo(`[KnowledgeEngine] Document ${filename} (hash: ${fileHash}) is already cached. Skipping OCR/Gemini.`);
+          return;
+        }
+      }
+      
       // 1. Parse
       const text = await Parser.parse(buffer, filename);
       if (!text || text.trim().length === 0) {
@@ -52,6 +63,7 @@ export class KnowledgeEngine {
           metadata: {
             documentId: docId,
             filename: filename,
+            fileHash: fileHash,
             chunkIndex: i + idx,
             hash: crypto.createHash("md5").update(chunkText).digest("hex"),
             timestamp: new Date().toISOString()

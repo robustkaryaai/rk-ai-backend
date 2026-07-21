@@ -58,10 +58,14 @@ async function logAppwriteStructureError(context, err, payload = {}) {
 }
 
 export async function getUserPlanBySlug(slug) {
+  const numSlug = Number(slug);
+  if (isNaN(numSlug)) {
+    throw new Error("Invalid slug: not a number");
+  }
   const res = await db.listDocuments(
     process.env.APPWRITE_DB_ID,
     process.env.APPWRITE_DEVICES_COLLECTION,
-    [Query.equal("slug", Number(slug))] // ✅ string slug
+    [Query.equal("slug", numSlug)] // ✅ string slug
   );
 
   if (!res.documents.length) {

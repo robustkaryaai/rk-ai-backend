@@ -48,7 +48,7 @@ export async function listGeminiModels(customApiKey = null) {
   }
 }
 
-export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null) {
+export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null, slug = null) {
   try {
     const historyText = Array.isArray(chatHistory)
       ? chatHistory.join("\n")
@@ -72,6 +72,17 @@ ${userPrompt}
       contents: finalPrompt
     });
     console.log(`💬 Gemini Response (${modelToUse}):`, response.text?.trim().substring(0, 100) + "...");
+
+    // Track tokens if slug is provided
+    if (slug && response.usageMetadata && response.usageMetadata.totalTokenCount) {
+      const tokensUsed = response.usageMetadata.totalTokenCount;
+      try {
+        const { incrementAppwriteUsage } = await import("./appwriteClient.js");
+        await incrementAppwriteUsage(slug, "tokens", tokensUsed);
+      } catch (err) {
+        logError("Failed to track Gemini tokens:", err);
+      }
+    }
 
     return response.text ?? "";
 
@@ -104,7 +115,7 @@ ${userPrompt}
       await new Promise(r => setTimeout(r, 60000));
 
       if (retries > 0) {
-        return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, customModel);
+        return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, customModel, slug);
       }
     }
 
@@ -113,7 +124,7 @@ ${userPrompt}
   }
 }
 
-export async function callGeminiVision(prompt, imageBuffer, mimeType, customApiKey = null, customModel = null) {
+export async function callGeminiVision(prompt, imageBuffer, mimeType, customApiKey = null, customModel = null, slug = null) {
   try {
     const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
     const modelToUse = customModel || "gemini-2.5-flash"; 
@@ -131,9 +142,20 @@ export async function callGeminiVision(prompt, imageBuffer, mimeType, customApiK
       ]
     });
     
+    // Track tokens if slug is provided
+    if (slug && response.usageMetadata && response.usageMetadata.totalTokenCount) {
+      const tokensUsed = response.usageMetadata.totalTokenCount;
+      try {
+        const { incrementAppwriteUsage } = await import("./appwriteClient.js");
+        await incrementAppwriteUsage(slug, "tokens", tokensUsed);
+      } catch (err) {
+        logError("Failed to track Gemini tokens:", err);
+      }
+    }
+
     return response.text ?? "";
   } catch (err) {
-    logError("❌ Gemini Vision Error:", err);
-    return `Cloud Vision Error: ${err.message}`;
+    logError("❌ Gemini Vision failure:", err?.message);
+    return "Error interpreting the image. Please try again.";
   }
 }

@@ -21,6 +21,16 @@ export class VectorStore {
   async search(embedding, slug, topK = 5) {
     throw new Error("Not implemented");
   }
+
+  /**
+   * Check if a document is already indexed
+   * @param {string} fileHash 
+   * @param {string} slug 
+   * @returns {Promise<boolean>}
+   */
+  async documentExists(fileHash, slug) {
+    throw new Error("Not implemented");
+  }
 }
 
 // Supabase pgvector implementation
@@ -58,6 +68,22 @@ export class SupabaseVectorStore extends VectorStore {
     } catch (err) {
       logError(`[VectorStore] Supabase search error:`, err);
       return [];
+    }
+  }
+
+  async documentExists(fileHash, slug) {
+    try {
+      const { count, error } = await supabase
+        .from('documents')
+        .select('*', { count: 'exact', head: true })
+        .eq('slug', slug)
+        .eq('metadata->>fileHash', fileHash);
+
+      if (error) throw error;
+      return count > 0;
+    } catch (err) {
+      logError(`[VectorStore] documentExists error:`, err);
+      return false; // Safely return false so it re-indexes on error
     }
   }
 }

@@ -267,6 +267,11 @@ router.get("/cloud-dashboard/:slug", async (req, res) => {
       videoPercent = Math.min(100, Math.round((used.video / allowed.video) * 100));
     }
 
+    let tokensPercent = 0;
+    if (allowed.tokens > 0) {
+      tokensPercent = Math.min(100, Math.round((used.tokens / allowed.tokens) * 100));
+    }
+
     const filesResponse = await listFilesFromSlug(slug);
     
     // Attach public URLs to files
@@ -285,10 +290,13 @@ router.get("/cloud-dashboard/:slug", async (req, res) => {
       usage: {
         imagePercent,
         videoPercent,
+        tokensPercent,
         imageUsed: used.image,
         imageAllowed: allowed.image,
         videoUsed: used.video,
-        videoAllowed: allowed.video
+        videoAllowed: allowed.video,
+        tokensUsed: used.tokens,
+        tokensAllowed: allowed.tokens
       },
       files: mappedFiles
     });
