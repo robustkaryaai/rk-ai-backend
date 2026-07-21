@@ -74,7 +74,7 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB) {
     console.log(`Sending DeAPI video generation request for prompt: "${prompt}"`);
     const payload = {
       prompt: prompt,
-      model: "ltx-video-13b", // exact model ID from DeAPI
+      model: "Ltxv_13B_0_9_8_Distilled_FP8", // exact model ID from DeAPI
       width: 768,
       height: 512,
       frames: 121, // ~5 seconds at 24fps
