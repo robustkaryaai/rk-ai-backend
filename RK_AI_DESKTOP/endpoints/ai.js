@@ -124,7 +124,7 @@ router.post("/generate/video", async (req, res) => {
 
     logInfo(`Desktop Video Generate: "${prompt}"`);
     const { tier, limits, storageMB } = await getTierAndLimits(slug);
-    const result = await generateVideo(prompt, slug, tier, storageMB);
+    const result = await generateVideo(prompt, slug, tier, storageMB, req.body);
     
     if (result.video) {
       const { data } = supabase.storage.from(process.env.SUPABASE_BUCKET || "user-files").getPublicUrl(`${slug}/${result.video}`);

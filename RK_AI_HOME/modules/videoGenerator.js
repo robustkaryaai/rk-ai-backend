@@ -13,7 +13,7 @@ const LTX_API_KEY = process.env.LTX_API_KEY;
 const VIDEO_PROVIDER = process.env.VIDEO_PROVIDER || "deapi";
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "user-files";
 
-export async function generateVideo(prompt, slug, tier, storageLimitMB) {
+export async function generateVideo(prompt, slug, tier, storageLimitMB, opts = {}) {
   if (VIDEO_PROVIDER === "ltx") {
     if (!LTX_API_KEY) {
       throw new Error("LTX_API_KEY environment variable is not set.");
@@ -72,14 +72,22 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB) {
     }
     
     console.log(`Sending DeAPI video generation request for prompt: "${prompt}"`);
+    
+    // Safely parse and clamp parameters from the Python desktop app
+    const safeWidth = Math.max(256, Math.min(parseInt(opts.width) || 768, 1280));
+    const safeHeight = Math.max(256, Math.min(parseInt(opts.height) || 512, 720));
+    const safeFrames = Math.max(1, Math.min(parseInt(opts.frames) || 120, 120));
+    const safeFps = Math.max(30, Math.min(parseInt(opts.fps) || 30, 60));
+    const safeSteps = Math.max(1, Math.min(parseInt(opts.steps) || 1, 1));
+    
     const payload = {
       prompt: prompt,
       model: "Ltxv_13B_0_9_8_Distilled_FP8", // exact model ID from DeAPI
-      width: 768,
-      height: 512,
-      frames: 120, // max allowed is 120
-      fps: 30, // min allowed is 30
-      steps: 1, // distilled models require exactly 1 step
+      width: safeWidth,
+      height: safeHeight,
+      frames: safeFrames, // max allowed is 120
+      fps: safeFps, // min allowed is 30
+      steps: safeSteps, // distilled models require exactly 1 step
       guidance: 1.0, // guidance scale required by DeAPI schema
       seed: Math.floor(Math.random() * 1000000)
     };
