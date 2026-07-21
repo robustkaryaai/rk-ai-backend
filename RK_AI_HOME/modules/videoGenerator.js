@@ -77,8 +77,9 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB) {
       model: "Ltxv_13B_0_9_8_Distilled_FP8", // exact model ID from DeAPI
       width: 768,
       height: 512,
-      frames: 121, // ~5 seconds at 24fps
-      fps: 24,
+      frames: 120, // max allowed is 120
+      fps: 30, // min allowed is 30
+      steps: 30, // steps parameter is required
       seed: Math.floor(Math.random() * 1000000)
     };
 
