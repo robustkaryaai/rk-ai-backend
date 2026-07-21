@@ -65,6 +65,80 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB) {
     return { video: filename };
   }
 
+  if (VIDEO_PROVIDER === "deapi") {
+    const DEAPI_API_KEY = process.env.DEAPI_API_KEY;
+    if (!DEAPI_API_KEY) {
+      throw new Error("DEAPI_API_KEY environment variable is not set.");
+    }
+    
+    console.log(`Sending DeAPI video generation request for prompt: "${prompt}"`);
+    const payload = {
+      prompt: prompt,
+      model: "ltx-video", // or ltx-video-13b, DeAPI will route it
+    };
+
+    const generateResponse = await fetch(`https://api.deapi.ai/api/v1/client/txt2video`, {
+      method: 'POST',
+      headers: {
+        "Authorization": `Bearer ${DEAPI_API_KEY}`,
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!generateResponse.ok) {
+      const errText = await generateResponse.text();
+      throw new Error(`DeAPI create failed: ${generateResponse.status} - ${errText}`);
+    }
+
+    const data = await generateResponse.json();
+    const requestId = data?.data?.request_id || data?.request_id;
+    if (!requestId) {
+      throw new Error("DeAPI did not return a request_id for video generation.");
+    }
+
+    let videoUrl = null;
+    const maxRetries = 90;
+    let delayMs = 3000;
+    console.log(`Starting poll for video request ID: ${requestId}`);
+
+    for (let i = 0; i < maxRetries; i++) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      
+      const statusRes = await fetch(`https://api.deapi.ai/api/v1/client/request-status/${requestId}`, {
+        method: 'GET',
+        headers: {
+          "Authorization": `Bearer ${DEAPI_API_KEY}`,
+          "Accept": "application/json",
+        }
+      });
+
+      if (!statusRes.ok) continue;
+
+      const statusData = await statusRes.json();
+      const status = statusData?.data?.status;
+
+      if (status === "done") {
+        videoUrl = statusData?.data?.result_url || statusData?.data?.video_url || statusData?.data?.url;
+        break;
+      }
+      if (status === "failed") {
+        throw new Error(`DeAPI video generation failed: ${JSON.stringify(statusData)}`);
+      }
+      console.log(`Job ${requestId} status: ${status}. Polling attempt ${i + 1}/${maxRetries}...`);
+    }
+
+    if (!videoUrl) throw new Error("DeAPI video generation timed out.");
+
+    const dl = await fetch(videoUrl);
+    if (!dl.ok) throw new Error(`Download failed: ${dl.status}`);
+    const buf = Buffer.from(await dl.arrayBuffer());
+    const filename = generateFilename(prompt, "video", "mp4");
+    await saveFileToSlug(slug, filename, buf);
+    return { video: filename };
+  }
+
   if (VIDEO_PROVIDER === "pixwith") {
     // Force text-to-video (model 2-9) instead of image-to-video
     const payload = {
