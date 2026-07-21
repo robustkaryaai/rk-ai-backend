@@ -79,7 +79,8 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB) {
       height: 512,
       frames: 120, // max allowed is 120
       fps: 30, // min allowed is 30
-      steps: 30, // steps parameter is required
+      steps: 1, // distilled models require exactly 1 step
+      guidance: 1.0, // guidance scale required by DeAPI schema
       seed: Math.floor(Math.random() * 1000000)
     };
 
