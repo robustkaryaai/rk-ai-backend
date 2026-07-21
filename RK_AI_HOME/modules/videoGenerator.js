@@ -66,50 +66,17 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB) {
   }
 
   if (VIDEO_PROVIDER === "pixwith") {
-    // Choose text-to-video for Pro/Studio, fallback to image-to-video for others
-    const isPro = tier === "pro" || tier === "studio";
-    const createPayload = isPro
-      ? {
-          prompt,
-          model_id: "2-9",
-          options: {
-            prompt_optimization: true,
-            aspect_ratio: "16:9",
-            resolution: "480p",
-            duration: 5
-          }
-        }
-      : (() => {
-          // Fallback: image-to-video (should not run due to gating, kept for completeness)
-          // Generate base image and use its public URL
-          return (async () => {
-            const img = await generateImage(prompt, slug, tier, storageLimitMB);
-            const imageFilename = img?.image;
-            if (!imageFilename) throw new Error("Image generation did not return a filename");
-            let imageUrl = null;
-            const signed = await supabase.storage.from(SUPABASE_BUCKET).createSignedUrl(`${slug}/${imageFilename}`, 3600);
-            if (signed?.data?.signedUrl) {
-              imageUrl = signed.data.signedUrl;
-            } else {
-              const pub = await supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(`${slug}/${imageFilename}`);
-              imageUrl = pub?.data?.publicUrl || null;
-            }
-            if (!imageUrl) throw new Error("Unable to create public URL for generated image");
-            return {
-              prompt,
-              image_urls: [imageUrl],
-              model_id: "2-10",
-              options: {
-                prompt_optimization: true,
-                aspect_ratio: "16:9",
-                resolution: "480p",
-                duration: 5
-              }
-            };
-          })();
-        })();
-
-    const payload = createPayload instanceof Promise ? await createPayload : createPayload;
+    // Force text-to-video (model 2-9) instead of image-to-video
+    const payload = {
+      prompt,
+      model_id: "2-9",
+      options: {
+        prompt_optimization: true,
+        aspect_ratio: "16:9",
+        resolution: "480p",
+        duration: 5
+      }
+    };
 
     const createRes = await fetch("https://api.pixwith.ai/api/task/create", {
       method: "POST",
