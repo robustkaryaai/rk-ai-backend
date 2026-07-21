@@ -10,7 +10,7 @@ if (!HF_TOKEN) {
 }
 const PIXWITH_API_KEY = process.env.PIXWITH_API_KEY;
 const LTX_API_KEY = process.env.LTX_API_KEY;
-const VIDEO_PROVIDER = process.env.VIDEO_PROVIDER || "pixwith";
+const VIDEO_PROVIDER = process.env.VIDEO_PROVIDER || "deapi";
 const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET || "user-files";
 
 export async function generateVideo(prompt, slug, tier, storageLimitMB) {
