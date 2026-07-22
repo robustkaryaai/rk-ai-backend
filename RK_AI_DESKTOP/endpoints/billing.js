@@ -211,6 +211,64 @@ router.post("/upgrade", async (req, res) => {
 });
 
 /* ─────────────────────────────────────────────────────────────────
+   POST /billing/downgrade
+   Reverts a user's plan to 'free' directly from the Desktop app
+───────────────────────────────────────────────────────────────── */
+router.post("/downgrade", async (req, res) => {
+  try {
+    const { slug, email, deviceSlug } = req.body;
+    let finalDeviceSlug = deviceSlug || req.headers["x-device-slug"] || "";
+    const targetUserId = email || slug;
+
+    // ── Step 1: Update user account in users collection to 'free' ──
+    if (targetUserId) {
+      try {
+        await upgradeDatabaseUser(targetUserId, "free", 0);
+      } catch (dbErr) {
+        logError(`[Billing] Could not downgrade users collection for ${targetUserId}:`, dbErr.message);
+      }
+    }
+
+    // ── Step 2: Sync subscription state to 'free' ──
+    if (targetUserId) {
+      try {
+        await db.createDocument(
+          process.env.APPWRITE_DB_ID,
+          "subscriptions",
+          ID.unique(),
+          {
+            userId: targetUserId,
+            plan: "free",
+            status: "active"
+          }
+        );
+      } catch (subErr) {
+        logError(`[Billing] Could not sync subscriptions collection downgrade:`, subErr.message);
+      }
+    }
+
+    // ── Step 3: Update subscription on the device ──
+    const hasDevice = finalDeviceSlug && !isNaN(Number(finalDeviceSlug));
+    if (hasDevice) {
+      const updatedStatus = await updateSubscription(finalDeviceSlug, "free", 0);
+      logInfo(`[Billing] ✓ Downgraded device ${finalDeviceSlug} → free`);
+    } else {
+      logInfo(`[Billing] ✓ Downgraded web account ${targetUserId} → free`);
+    }
+
+    return res.json({
+      ok: true,
+      message: `Successfully downgraded to Free tier.`,
+      plan: "free"
+    });
+
+  } catch (err) {
+    logError("[Billing] Downgrade error:", err);
+    return res.status(500).json({ ok: false, error: "Failed to process downgrade. Please try again." });
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────
    GET /billing/status
    Returns current plan and limits for a device
 ───────────────────────────────────────────────────────────────── */
@@ -247,6 +305,22 @@ router.get("/status", async (req, res) => {
   }
 });
 // Cloud Dashboard API for Desktop Settings
+router.post("/usage/increment", async (req, res) => {
+  try {
+    const slug = req.headers["x-device-slug"] || req.body.slug;
+    const { type, amount } = req.body;
+    if (!slug || !type || !amount) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    const { incrementAppwriteUsage } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+    await incrementAppwriteUsage(slug, type, amount);
+    return res.json({ ok: true });
+  } catch (err) {
+    logError("[Billing] Usage increment error:", err);
+    return res.status(500).json({ error: "Failed to increment usage" });
+  }
+});
+
 router.get("/cloud-dashboard/:slug", async (req, res) => {
   try {
     const { slug } = req.params;
