@@ -46,6 +46,7 @@ export async function checkAndConsume(slug, tier, feature, amount = 1) {
       await incrementAppwriteUsage(slug, feature, amount);
     }
     
+    console.log(`\n\x1b[36m[RK AI QUOTA] 📊 Consumed ${amount} ${feature} for ${slug} — Usage: ${used + amount} / ${allowed}\x1b[0m\n`);
     logInfo(`Consumed ${amount} ${feature} for ${slug} — ${used + amount}/${allowed}`);
     return { ok: true, used: used + amount, allowed };
   } catch (err) {
