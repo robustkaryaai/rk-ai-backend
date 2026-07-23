@@ -149,11 +149,44 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
 }
 
 // Get subscription status for a slug
-export async function getSubscriptionStatus(slug) {
+export async function getSubscriptionStatus(slug, email) {
   await ensureDeviceBySlug(slug, "desktop"); // Auto-create if it doesn't exist
   const device = await getUserPlanBySlug(slug);
   const now = new Date();
   let status = "expired";
+  
+  // Sync web subscriptions to device
+  if (email) {
+    try {
+      const subs = await db.listDocuments(
+        process.env.APPWRITE_DB_ID,
+        "subscriptions",
+        [Query.equal("userId", email)]
+      );
+      if (subs.documents.length > 0) {
+        const sub = subs.documents[0];
+        if (sub.status === "active") {
+          const tierMap = { "free": 0, "pro": 1, "elite": 2, "quantum": 3, "infinity": 4 };
+          const tier = tierMap[sub.plan] || 0;
+          if (device.subscription !== "true" || device["subscription-tier"] !== tier) {
+            await db.updateDocument(
+              process.env.APPWRITE_DB_ID,
+              process.env.APPWRITE_DEVICES_COLLECTION,
+              device.$id,
+              {
+                subscription: tier > 0 ? "true" : "false",
+                "subscription-tier": tier
+              }
+            );
+            device.subscription = tier > 0 ? "true" : "false";
+            device["subscription-tier"] = tier;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to sync web subscription to device:", e.message);
+    }
+  }
 
   // Check if subscription is active
   if (device.subscription === "true") {

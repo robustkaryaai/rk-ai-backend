@@ -70,7 +70,8 @@ router.post("/media", async (req, res) => {
 // Cloud Deep Research (Agentic Loop)
 router.post("/deep-research", async (req, res) => {
   try {
-    const { topic } = req.body;
+    const rawTopic = req.body.topic || req.body.prompt || req.body.query;
+    const topic = typeof rawTopic === "string" ? rawTopic.trim() : null;
     const deviceSlug = req.headers["x-device-slug"];
 
     if (!topic || !deviceSlug) {

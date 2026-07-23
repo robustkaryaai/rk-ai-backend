@@ -464,12 +464,13 @@ app.get("/subscription/:slug", async (req, res) => {
 // Get subscription status via X-Device-Slug header
 app.get("/subscription", async (req, res) => {
   const slug = req.headers["x-device-slug"];
+  const email = req.headers["x-user-email"];
   if (!slug) {
     return res.status(400).json({ ok: false, error: "X-Device-Slug header required" });
   }
   try {
     const normalizedSlug = normalizeSlug(slug);
-    const status = await getSubscriptionStatus(normalizedSlug);
+    const status = await getSubscriptionStatus(normalizedSlug, email);
     return res.json({ ok: true, ...status });
   } catch (err) {
     logError("Get subscription status error:", err);
