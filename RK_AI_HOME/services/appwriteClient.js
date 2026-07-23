@@ -212,7 +212,16 @@ export async function getSubscriptionStatus(slug) {
 
   // Map tier to plan name
   const tierMap = { 0: "free", 1: "pro", 2: "elite", 3: "quantum", 4: "infinity", "infinity": "infinity" };
-  const plan = tierMap[device["subscription-tier"]] || "free";
+  let plan = tierMap[device["subscription-tier"]] || "free";
+
+  // Fallback to explicitly set desktop plans for legacy users
+  if (plan === "free") {
+    const legacyPlan = device.desktopPlan || device.desktop_plan;
+    if (legacyPlan && legacyPlan !== "free") {
+      plan = legacyPlan;
+      status = "active";
+    }
+  }
 
   return {
     status,

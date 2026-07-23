@@ -198,8 +198,10 @@ router.post("/upgrade", async (req, res) => {
       logInfo(`[Billing] Payment token received: ${payment_token ? payment_token.slice(0, 12) + "..." : "none (simulated)"}`);
 
       // ── Step 4: Update subscription on the device ────────────────
-      const updatedStatus = await updateSubscription(finalDeviceSlug, plan, duration);
-      logInfo(`[Billing] ✓ Upgraded device ${finalDeviceSlug} → ${plan} (${duration} days)`);
+      // duration comes in as 'monthly' or 'yearly', but updateSubscription needs a number of days
+      const parsedDurationDays = duration === 'monthly' ? 30 : duration === 'yearly' ? 365 : 30;
+      const updatedStatus = await updateSubscription(finalDeviceSlug, plan, parsedDurationDays);
+      logInfo(`[Billing] ✓ Upgraded device ${finalDeviceSlug} → ${plan} (${parsedDurationDays} days)`);
 
       return res.json({
         ok: true,
