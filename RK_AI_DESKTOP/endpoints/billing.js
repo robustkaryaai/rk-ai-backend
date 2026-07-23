@@ -5,6 +5,7 @@ import {
   ensureDeviceBySlug,
   updateSubscription,
   upgradeDatabaseUser,
+  getSubscriptionStatus,
 } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { db } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { ID } from "node-appwrite";
@@ -359,8 +360,7 @@ router.get("/cloud-dashboard/:slug", async (req, res) => {
     const email = req.headers["x-user-email"];
     if (!slug) return res.status(400).json({ error: "Slug required" });
 
-    const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
-    const subStatus = await getSubscriptionStatus(slug, email);
+    const subStatus = await getSubscriptionStatus(slug, email || "");
     
     // Fallback: If device doesn't have tier set, but subStatus synced it, we should use subStatus.tier directly
     const device = await getUserPlanBySlug(slug);
