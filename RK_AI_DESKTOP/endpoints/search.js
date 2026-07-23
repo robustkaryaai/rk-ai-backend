@@ -88,27 +88,42 @@ router.post("/deep-research", async (req, res) => {
       return res.status(402).json({ ok: false, error: "Insufficient AI tokens for Deep Research" });
     }
 
-    logInfo(`[Deep Research] Starting cloud deep research for: "${topic}"`);
+    const interaction_id = "research_" + Date.now();
+    global.activeJobs = global.activeJobs || {};
+    global.activeJobs[interaction_id] = { status: "RUNNING", progress: 0 };
 
-    // Basic agentic flow for now: Multi-query extraction
-    const plannerPrompt = `The user wants deep research on: "${topic}". Generate 3 distinct search queries to gather comprehensive information on this topic. Return only the queries, one per line.`;
-    const plannerRes = await callGemini(plannerPrompt, [], "", 2, null, "gemini-2.5-pro");
-    const queries = plannerRes.split("\\n").map(q => q.trim()).filter(q => q.length > 0);
-    
-    let allFindings = "";
-    for (const query of queries) {
-      const searchResults = await ddgSearch(query, { safeSearch: 1 });
-      const topResults = searchResults.results.slice(0, 3).map(r => `Title: ${r.title}\\nSnippet: ${r.description}\\nURL: ${r.url}`).join("\\n\\n");
-      allFindings += `### Search: ${query}\\n${topResults}\\n\\n`;
-    }
+    // Fire and forget
+    (async () => {
+      try {
+        logInfo(`[Deep Research] Starting cloud deep research for: "${topic}"`);
 
-    const synthesisPrompt = `You are a research analyst. Synthesize the following search findings into a comprehensive, deeply detailed Markdown report about "${topic}".\\n\\nFindings:\\n${allFindings}\\n\\nEnsure you cite URLs where appropriate.`;
-    const finalReport = await callGemini(synthesisPrompt, [], "", 2, null, "gemini-2.5-pro");
+        // Basic agentic flow for now: Multi-query extraction
+        const plannerPrompt = `The user wants deep research on: "${topic}". Generate 3 distinct search queries to gather comprehensive information on this topic. Return only the queries, one per line.`;
+        const plannerRes = await callGemini(plannerPrompt, [], "", 2, null, "gemini-2.5-pro");
+        const queries = plannerRes.split("\n").map(q => q.trim()).filter(q => q.length > 0);
+        
+        let allFindings = "";
+        for (const query of queries) {
+          const searchResults = await ddgSearch(query, { safeSearch: 1 });
+          const topResults = searchResults.results.slice(0, 3).map(r => `Title: ${r.title}\nSnippet: ${r.description}\nURL: ${r.url}`).join("\n\n");
+          allFindings += `### Search: ${query}\n${topResults}\n\n`;
+        }
+
+        const synthesisPrompt = `You are a research analyst. Synthesize the following search findings into a comprehensive, deeply detailed Markdown report about "${topic}".\n\nFindings:\n${allFindings}\n\nEnsure you cite URLs where appropriate.`;
+        const finalReport = await callGemini(synthesisPrompt, [], "", 2, null, "gemini-2.5-pro");
+
+        global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: { report: finalReport.text } };
+      } catch (err) {
+        logError("Background Deep Research Error:", err);
+        global.activeJobs[interaction_id] = { status: "FAILED", error: err.message };
+      }
+    })();
 
     return res.json({
       ok: true,
-      report: finalReport.text,
-      tokensConsumed: cost
+      interaction_id,
+      status: "RUNNING",
+      message: "Deep research started in the background."
     });
 
   } catch (err) {
