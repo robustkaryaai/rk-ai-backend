@@ -128,18 +128,48 @@ router.post("/upgrade", async (req, res) => {
       // Sync subscription state to the frontend `subscriptions` collection
       const targetUserId = email || slug;
       if (targetUserId) {
-        const appwritePlanMap = { free: "free", pro: "core", elite: "apex" };
-        const dbPlan = appwritePlanMap[plan] || "free";
-        await db.createDocument(
+        // Use exact plan names as requested by the user
+        const dbPlan = plan || "free";
+        
+        // Check for existing subscription to prevent duplicates
+        const existingSubs = await db.listDocuments(
           process.env.APPWRITE_DB_ID,
           "subscriptions",
-          ID.unique(),
-          {
-            userId: targetUserId,
-            plan: dbPlan,
-            status: "active"
-          }
+          [Query.equal("userId", targetUserId)]
         );
+
+        const now = new Date();
+        const durationDays = duration === 'monthly' ? 30 : duration === 'yearly' ? 365 : 30;
+        const expiresDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+
+        if (existingSubs.documents.length > 0) {
+          // Update existing
+          await db.updateDocument(
+            process.env.APPWRITE_DB_ID,
+            "subscriptions",
+            existingSubs.documents[0].$id,
+            { 
+              plan: dbPlan, 
+              status: "active",
+              subscriptionDate: now.toISOString(),
+              expiresOn: expiresDate
+            }
+          );
+        } else {
+          // Create new
+          await db.createDocument(
+            process.env.APPWRITE_DB_ID,
+            "subscriptions",
+            ID.unique(),
+            {
+              userId: targetUserId,
+              plan: dbPlan,
+              status: "active",
+              subscriptionDate: now.toISOString(),
+              expiresOn: expiresDate
+            }
+          );
+        }
       }
     } catch (subErr) {
       logError(`[Billing] Could not sync subscriptions collection:`, subErr.message);
