@@ -148,120 +148,130 @@ export async function ensureDeviceBySlug(slug, deviceType = "home") {
   return { created: true };
 }
 
-// Get subscription status for a slug
+// Get subscription status for a slug (Ultra-Robust Rewrite)
 export async function getSubscriptionStatus(slug, email) {
-  await ensureDeviceBySlug(slug, "desktop"); // Auto-create if it doesn't exist
+  await ensureDeviceBySlug(slug, "desktop");
   const device = await getUserPlanBySlug(slug);
   const now = new Date();
-  let status = "expired";
   
-  // Sync web subscriptions to device
+  const tierMap = { "free": 0, "pro": 1, "elite": 2, "quantum": 3, "infinity": 4 };
+  const revTierMap = { 0: "free", 1: "pro", 2: "elite", 3: "quantum", 4: "infinity" };
+
+  let highestTier = 0;
+  let isActive = false;
+  let expiresAt = null;
+
+  // 1. Check Device Collection (Base Tier)
+  if (device.subscription === "true") {
+    if (device.subscription_expires_at) {
+      if (new Date(device.subscription_expires_at) > now) {
+        highestTier = Math.max(highestTier, Number(device["subscription-tier"] || 0));
+        isActive = true;
+        expiresAt = device.subscription_expires_at;
+      }
+    } else {
+      highestTier = Math.max(highestTier, Number(device["subscription-tier"] || 0));
+      isActive = true;
+    }
+  }
+
+  // 2. Sync with Subscriptions Collection (Stripe/Billing tier)
   if (email) {
     try {
       const subs = await db.listDocuments(
         process.env.APPWRITE_DB_ID,
         "subscriptions",
-        [Query.equal("userId", email)]
+        [Query.equal("userId", String(email))]
       );
       if (subs.documents.length > 0) {
         const sub = subs.documents[0];
         if (sub.status === "active") {
-          const tierMap = { "free": 0, "pro": 1, "elite": 2, "quantum": 3, "infinity": 4 };
-          const tier = tierMap[sub.plan] || 0;
-          if (device.subscription !== "true" || device["subscription-tier"] !== tier) {
-            await db.updateDocument(
-              process.env.APPWRITE_DB_ID,
-              process.env.APPWRITE_DEVICES_COLLECTION,
-              device.$id,
-              {
-                subscription: tier > 0 ? "true" : "false",
-                "subscription-tier": tier
-              }
-            );
-            device.subscription = tier > 0 ? "true" : "false";
-            device["subscription-tier"] = tier;
+          const subTier = tierMap[sub.plan] || 0;
+          if (subTier > highestTier) {
+            highestTier = subTier;
+            isActive = true;
+            expiresAt = sub.expiresOn || null;
           }
         }
       }
     } catch (e) {
-      console.warn("Failed to sync web subscription to device:", e.message);
+      console.warn("[Robust Sync] Subscriptions error:", e.message);
     }
   }
 
-  // Check if subscription is active
-  if (device.subscription === "true") {
-    // If there's an expiry date, check it
-    if (device.subscription_expires_at) {
-      const expiryDate = new Date(device.subscription_expires_at);
-      if (expiryDate > now) {
-        status = "active";
-      } else {
-        // Expired, reset subscription
-        await db.updateDocument(
-          process.env.APPWRITE_DB_ID,
-          process.env.APPWRITE_DEVICES_COLLECTION,
-          device.$id,
-          {
-            subscription: "false",
-            "subscription-tier": 0
-          }
-        );
-        status = "expired";
+  // 3. Sync with Users Collection (Legacy Web Accounts)
+  if (email) {
+    try {
+      const usersCol = process.env.APPWRITE_USERS_COLLECTION || "users";
+      const usr = await db.listDocuments(
+        process.env.APPWRITE_DB_ID,
+        usersCol,
+        [Query.equal("email", String(email))]
+      );
+      if (usr.documents.length > 0) {
+        const u = usr.documents[0];
+        const uTier = tierMap[u.plan] || 0;
+        if (uTier > highestTier) {
+          highestTier = uTier;
+          isActive = true;
+        }
       }
-    } else {
-      // No expiry date, assume active
-      status = "active";
+    } catch (e) {
+      console.warn("[Robust Sync] Users error:", e.message);
     }
-  } else {
-    status = "free";
   }
 
-  // Calculate days left
-  let daysLeft = 0;
-  if (device.subscription_expires_at) {
-    const expiryDate = new Date(device.subscription_expires_at);
-    const diffMs = expiryDate - now;
-    daysLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-  } else if (device.subscription === "true") {
-    daysLeft = 9999; // No expiry set
+  // 4. Force Update Device if out of sync
+  if ((isActive && device.subscription !== "true") || Number(device["subscription-tier"]) !== highestTier) {
+    try {
+      await db.updateDocument(
+        process.env.APPWRITE_DB_ID,
+        process.env.APPWRITE_DEVICES_COLLECTION,
+        device.$id,
+        {
+          subscription: highestTier > 0 ? "true" : "false",
+          "subscription-tier": highestTier
+        }
+      );
+    } catch(e) {}
   }
 
-  // Handle monthly usage resets
+  // 5. Handle Monthly Reset
   if (device.usageResetAt && new Date(device.usageResetAt) <= now) {
-    // Reset limits and push reset date forward 30 days
     const nextReset = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
     await db.updateDocument(
       process.env.APPWRITE_DB_ID,
       process.env.APPWRITE_DEVICES_COLLECTION,
       device.$id,
-      {
-        tokensUsed: 0,
-        imagesUsed: 0,
-        videosUsed: 0,
-        usageResetAt: nextReset
-      }
+      { tokensUsed: 0, imagesUsed: 0, videosUsed: 0, usageResetAt: nextReset }
     );
+    device.tokensUsed = 0; device.imagesUsed = 0; device.videosUsed = 0;
   }
 
-  // Map tier to plan name
-  const tierMap = { 0: "free", 1: "pro", 2: "elite", 3: "quantum", 4: "infinity", "infinity": "infinity" };
-  let plan = tierMap[device["subscription-tier"]] || "free";
+  // Calculate Days Left
+  let daysLeft = isActive ? 9999 : 0;
+  if (expiresAt && isActive) {
+    daysLeft = Math.max(0, Math.ceil((new Date(expiresAt) - now) / (1000 * 60 * 60 * 24)));
+  }
 
-  // Fallback to explicitly set desktop plans for legacy users
-  if (plan === "free") {
+  let finalPlan = revTierMap[highestTier] || "free";
+  
+  // 6. Legacy fallback check for desktopPlan field
+  if (highestTier === 0) {
     const legacyPlan = device.desktopPlan || device.desktop_plan;
     if (legacyPlan && legacyPlan !== "free") {
-      plan = legacyPlan;
-      status = "active";
+      finalPlan = legacyPlan;
+      isActive = true;
+      highestTier = tierMap[legacyPlan] || 1;
     }
   }
 
   return {
-    status,
-    plan,
-    tier: device["subscription-tier"],
+    status: isActive ? "active" : "expired",
+    plan: finalPlan,
+    tier: highestTier,
     days_left: daysLeft,
-    expires_at: device.subscription_expires_at,
+    expires_at: expiresAt,
     device_type: device.device_type || "home",
     tokensUsed: device.tokensUsed || 0,
     imagesUsed: device.imagesUsed || 0,
