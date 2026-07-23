@@ -356,10 +356,15 @@ router.post("/usage/increment", async (req, res) => {
 router.get("/cloud-dashboard/:slug", async (req, res) => {
   try {
     const { slug } = req.params;
+    const email = req.headers["x-user-email"];
     if (!slug) return res.status(400).json({ error: "Slug required" });
 
+    const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+    const subStatus = await getSubscriptionStatus(slug, email);
+    
+    // Fallback: If device doesn't have tier set, but subStatus synced it, we should use subStatus.tier directly
     const device = await getUserPlanBySlug(slug);
-    const tier = Number(device["subscription-tier"] || 0);
+    const tier = Number(device["subscription-tier"] || subStatus.tier || 0);
     const allowed = getLimitsForTier(tier);
     const used = await ensureLimitFile(slug); // returns { image, video, tokens }
 
