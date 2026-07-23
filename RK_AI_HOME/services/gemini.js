@@ -89,13 +89,16 @@ ${userPrompt}
   } catch (err) {
     const msg = err?.message || "";
     
-    // If using custom API key, don't retry with system keys as it might violate user privacy/choice
+    // If using custom API key, fallback to System Keys if they hit a rate limit!
     if (customApiKey) {
       logError("❌ Gemini custom key failure:", msg);
-      if (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted")) {
-          return "Custom AI Error: Your personal API Key has run out of quota.";
+      if (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("rate")) {
+          logInfo("🔄 Custom Key out of quota! Falling back to System API Keys to prevent downtime...");
+          customApiKey = null; // Remove custom key for the retry
+          // We will let it fall through to the system retry logic below!
+      } else {
+          return `Custom AI Error: ${msg.includes("401") ? "Invalid API Key" : msg}`;
       }
-      return `Custom AI Error: ${msg.includes("401") ? "Invalid API Key" : msg}`;
     }
 
     // ✅ Auto switch and delay on quota/rate limits or 503s for system keys

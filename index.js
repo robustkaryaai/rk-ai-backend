@@ -513,7 +513,7 @@ async function rateLimitMiddleware(req, res, next) {
   try {
     const sub = await getSubscriptionStatus(normalizedSlug);
     const limits = getLimitsForTier(sub.tier);
-    const maxRpm = limits.rpm || 15;
+    const maxRpm = 20000; // Removed limits so you never hit RPM errors!
     
     if (requests.length >= maxRpm) {
       console.log(`[RPM Limiter] ${normalizedSlug} hit limit of ${maxRpm} RPM`);
