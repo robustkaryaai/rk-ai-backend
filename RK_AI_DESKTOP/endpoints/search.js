@@ -80,8 +80,11 @@ router.post("/deep-research", async (req, res) => {
 
     // Deep Research is a heavy operation, deduct tokens
     const cost = 25000; 
-    const limits = await ensureLimitFile(deviceSlug);
-    if (!checkAndConsume(limits, "tokens", cost)) {
+    const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+    const subStatus = await getSubscriptionStatus(deviceSlug, req.headers["x-user-email"]);
+    
+    const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", cost);
+    if (!consumeRes.ok) {
       return res.status(402).json({ ok: false, error: "Insufficient AI tokens for Deep Research" });
     }
 
@@ -89,8 +92,8 @@ router.post("/deep-research", async (req, res) => {
 
     // Basic agentic flow for now: Multi-query extraction
     const plannerPrompt = `The user wants deep research on: "${topic}". Generate 3 distinct search queries to gather comprehensive information on this topic. Return only the queries, one per line.`;
-    const plannerRes = await callGemini(plannerPrompt, "gemini-2.5-pro");
-    const queries = plannerRes.text.split("\\n").map(q => q.trim()).filter(q => q.length > 0);
+    const plannerRes = await callGemini(plannerPrompt, [], "", 2, null, "gemini-2.5-pro");
+    const queries = plannerRes.split("\\n").map(q => q.trim()).filter(q => q.length > 0);
     
     let allFindings = "";
     for (const query of queries) {
@@ -100,7 +103,7 @@ router.post("/deep-research", async (req, res) => {
     }
 
     const synthesisPrompt = `You are a research analyst. Synthesize the following search findings into a comprehensive, deeply detailed Markdown report about "${topic}".\\n\\nFindings:\\n${allFindings}\\n\\nEnsure you cite URLs where appropriate.`;
-    const finalReport = await callGemini(synthesisPrompt, "gemini-2.5-pro");
+    const finalReport = await callGemini(synthesisPrompt, [], "", 2, null, "gemini-2.5-pro");
 
     return res.json({
       ok: true,
