@@ -5,7 +5,7 @@ import { getSubscriptionStatus, incrementAppwriteUsage } from "./services/appwri
 // Monthly Limits per Tier
 const TIER_LIMITS = {
   0: { tokens: 0, image: 0, video: 0, ppt: 0, ppt_slides: 0, rpm: 15 }, // Free
-  1: { tokens: 1500000, image: 150, video: 15, ppt: 999999, ppt_slides: 999999, rpm: 30 }, // Pro
+  1: { tokens: 1500000, image: 150, video: 15, ppt: 999999, ppt_slides: 999999, rpm: 5, rpd: 20 }, // Pro
   2: { tokens: 5000000, image: 600, video: 30, ppt: 999999, ppt_slides: 999999, rpm: 60 }, // Elite
   3: { tokens: 15000000, image: 2000, video: 100, ppt: 999999, ppt_slides: 999999, rpm: 150 }, // Quantum
   4: { tokens: 99999999, image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999, rpm: 300 }, // Infinity

@@ -104,7 +104,7 @@ router.post("/deep-research", async (req, res) => {
         
         let allFindings = "";
         for (const query of queries) {
-          const searchResults = await ddgSearch(query, { safeSearch: 1 });
+          const searchResults = await ddgSearch(query, { safeSearch: "moderate" });
           const topResults = searchResults.results.slice(0, 3).map(r => `Title: ${r.title}\nSnippet: ${r.description}\nURL: ${r.url}`).join("\n\n");
           allFindings += `### Search: ${query}\n${topResults}\n\n`;
         }

@@ -491,6 +491,7 @@ app.use(validateDevice);
 
 // ---------------- RPM RATE LIMITER ----------------
 const rpmTracker = new Map();
+const rpdTracker = new Map();
 
 async function rateLimitMiddleware(req, res, next) {
   // Only limit actual AI action routes, ignore simple status checks
@@ -504,18 +505,20 @@ async function rateLimitMiddleware(req, res, next) {
   const normalizedSlug = normalizeSlug(slug);
   const now = Date.now();
   
-  if (!rpmTracker.has(normalizedSlug)) {
-    rpmTracker.set(normalizedSlug, []);
-  }
-  let requests = rpmTracker.get(normalizedSlug);
-  requests = requests.filter(ts => now - ts < 60000);
+  if (!rpmTracker.has(normalizedSlug)) rpmTracker.set(normalizedSlug, []);
+  if (!rpdTracker.has(normalizedSlug)) rpdTracker.set(normalizedSlug, []);
+  
+  let requestsMin = rpmTracker.get(normalizedSlug).filter(ts => now - ts < 60000);
+  let requestsDay = rpdTracker.get(normalizedSlug).filter(ts => now - ts < 86400000);
   
   try {
     const sub = await getSubscriptionStatus(normalizedSlug);
     const limits = getLimitsForTier(sub.tier);
-    const maxRpm = 20000; // Removed limits so you never hit RPM errors!
     
-    if (requests.length >= maxRpm) {
+    const maxRpm = limits?.rpm || 15;
+    const maxRpd = limits?.rpd || 999999;
+    
+    if (requestsMin.length >= maxRpm) {
       console.log(`[RPM Limiter] ${normalizedSlug} hit limit of ${maxRpm} RPM`);
       return res.status(429).json({ 
         error: "too_many_requests", 
@@ -523,9 +526,20 @@ async function rateLimitMiddleware(req, res, next) {
         shoom: true
       });
     }
+
+    if (requestsDay.length >= maxRpd) {
+      console.log(`[RPD Limiter] ${normalizedSlug} hit limit of ${maxRpd} RPD`);
+      return res.status(429).json({ 
+        error: "too_many_requests", 
+        message: `Daily Limit reached! Your plan allows ${maxRpd} requests per day.`,
+        shoom: true
+      });
+    }
     
-    requests.push(now);
-    rpmTracker.set(normalizedSlug, requests);
+    requestsMin.push(now);
+    requestsDay.push(now);
+    rpmTracker.set(normalizedSlug, requestsMin);
+    rpdTracker.set(normalizedSlug, requestsDay);
     next();
   } catch (err) {
     next();

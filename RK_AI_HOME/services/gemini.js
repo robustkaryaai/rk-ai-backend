@@ -111,7 +111,7 @@ ${userPrompt}
       msg.includes("exhausted") ||
       msg.includes("rate")
     ) {
-      logError("⚠ Gemini overloaded/busy. Switching API Key and waiting 60 seconds to cool down (Never Give Up Mode)...");
+      logError(`⚠ Gemini overloaded/busy. Switching API Key and waiting 60 seconds to cool down (Never Give Up Mode)... Exact Error: ${msg}`);
       switchApiKey();
       
       // Wait 60 seconds to completely clear any rate limits or server spikes

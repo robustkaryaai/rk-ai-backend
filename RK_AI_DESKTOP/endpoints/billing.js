@@ -42,6 +42,7 @@ const PLANS = {
     ],
     monthly_token_limit: 1000000,
     rpm_limit: 5,
+    rpd_limit: 20,
     image_limit: 100,
     video_limit: 10,
     duration_days_default: 30,
