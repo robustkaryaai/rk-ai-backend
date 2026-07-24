@@ -55,12 +55,10 @@ async function testSearXNG(query) {
 }
 
 async function runTests() {
-    const query = "impact of AI on autonomous driving safety benefits and risks academic research industry reports";
+    const query = "latest breakthroughs in quantum computing hardware 2023 2024 superconducting trapped ion neutral atom photonic silicon";
     console.log(`Query: "${query}"\n`);
     
     await testLangSearch(query);
-    console.log("\n------------------\n");
-    await testSearXNG(query);
 }
 
 runTests();

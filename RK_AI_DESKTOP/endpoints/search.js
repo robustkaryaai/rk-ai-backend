@@ -10,7 +10,10 @@ async function robustSearch(query) {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${langSearchKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "X-Forwarded-For": "68.21.43.12", // Spoof a residential IP
+          "Referer": "https://www.google.com/"
         },
         body: JSON.stringify({ query: query, freshness: "noLimit", summary: true, count: 10 })
       });
