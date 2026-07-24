@@ -156,8 +156,11 @@ ${userPrompt}
           logError(`Switching API Key and waiting 4 seconds...`);
           switchApiKey();
           await new Promise(r => setTimeout(r, 4000));
-      } else {
-          logError(`Model missing! Instantly retrying with fallback model: ${fallbackModel}`);
+      }
+      if (msg.includes("404") || msg.includes("not found")) {
+        logError(`Model missing! Instantly retrying with fallback model: gemini-3.1-flash-lite-preview`);
+        const modelToUse = customModel || "gemini-3.1-flash-lite-preview"; 
+        return await callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, modelToUse, slug, useWebSearch, returnMetadata);
       }
 
       if (retries > 0) {

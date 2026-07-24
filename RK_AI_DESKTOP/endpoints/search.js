@@ -272,7 +272,7 @@ router.post("/search-tool", async (req, res) => {
       return res.status(402).json({ ok: false, error: "Insufficient AI tokens for Search Tool" });
     }
 
-    // Force gemini-2.5-flash because it is the cheapest model with Search Grounding
+    // Force gemini-3.1-flash-lite-preview because it is the cheapest model with Search Grounding
     // We use returnMetadata=true for exact billing
     const prompt = `Provide a concise, factual answer to the following query. 
 Use your Google Search grounding tool to find the most accurate real-time information.
@@ -284,7 +284,7 @@ Query: "${finalQuery}"`;
       "", 
       1, 
       null, 
-      "gemini-2.5-flash", 
+      "gemini-3.1-flash-lite-preview", 
       deviceSlug, // Pass slug for exact billing inside callGemini
       true,       // useWebSearch = true
       true        // returnMetadata = true

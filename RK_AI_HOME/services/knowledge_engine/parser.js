@@ -56,7 +56,7 @@ export class Parser {
 
       // Extract raw text using Flash Lite
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-lite",
+        model: "gemini-3.1-flash-lite-preview",
         contents: [
           uploadResult,
           "Extract all text from this document sequentially. Output ONLY the exact raw text verbatim, nothing else. Do not summarize or format."
