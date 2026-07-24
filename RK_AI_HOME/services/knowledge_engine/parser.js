@@ -36,26 +36,8 @@ export class Parser {
   }
 
   static async parsePdf(buffer, filename) {
-    // Hybrid Approach: Small PDFs parsed locally to save API quota, Heavy PDFs sent to Gemini to prevent OOM
-    const FILE_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB
-
-    if (buffer.length < FILE_SIZE_LIMIT) {
-      logInfo(`[Knowledge Parser] File ${filename} is ${Math.round(buffer.length/1024)}KB (< 5MB). Parsing locally.`);
-      const require = createRequire(import.meta.url);
-      let pdfParse;
-      try {
-        const mod = require("pdf-parse");
-        pdfParse = typeof mod === "function" ? mod : mod.default;
-        const data = await pdfParse(buffer);
-        return data.text;
-      } catch (err) {
-        logError("[Knowledge Parser] Local pdf-parse failed, falling back to Gemini:", err);
-        // Fallthrough to Gemini
-      }
-    } else {
-      logInfo(`[Knowledge Parser] File ${filename} is massive (${Math.round(buffer.length/1024/1024)}MB). Delegating to Gemini to prevent OOM.`);
-    }
-
+    logInfo(`[Knowledge Parser] Delegating PDF parsing to Gemini to prevent backend OOM (${Math.round(buffer.length/1024)}KB).`);
+    
     const tempPath = path.join(os.tmpdir(), `${Date.now()}_${filename}`);
     fs.writeFileSync(tempPath, buffer);
 

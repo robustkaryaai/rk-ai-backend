@@ -140,16 +140,22 @@ router.post("/deep-research", async (req, res) => {
         let finalReport = "No report generated.";
         
         for (let step = 0; step < 5; step++) {
-          const prompt = `You are an autonomous Deep Research agent.
+          const prompt = `You are an elite Autonomous Deep Research AI.
 Your objective is to thoroughly research: "${topic}".
+
+STRICT RULES:
+1. On your very first step, you MUST formulate a strict research plan before taking any action.
+2. You must execute your plan step-by-step.
+3. NEVER fake facts.
+
 Known Facts so far:
 ${knownFacts}
 
 You MUST output EXACTLY one valid JSON object and nothing else. Do not use Markdown wrappers like \`\`\`json.
 {
-  "reasoning": "What do I need to search for next? Or do I have enough info to complete the report?",
-  "tool": "web_search" | "completed",
-  "tool_input": "search query (if web_search) OR final comprehensive Markdown report (if completed)"
+  "reasoning": "Explain your logic for this step. Did you make a plan yet? What are you doing next?",
+  "tool": "web_search" | "analyze_text" | "completed",
+  "tool_input": "search query (for web_search) OR text to summarize (for analyze_text) OR final comprehensive Markdown report (for completed)"
 }`;
           
           let resText = await callGemini(prompt, [], "", 2, null, "gemma-4-26b-a4b-it");
@@ -170,6 +176,15 @@ You MUST output EXACTLY one valid JSON object and nothing else. Do not use Markd
             finalReport = agentAction.tool_input;
             isCompleted = true;
             break;
+          } else if (agentAction.tool === "analyze_text") {
+            const textToAnalyze = agentAction.tool_input;
+            logInfo(`[Deep Research] Agent analyzing text snippet.`);
+            try {
+               const analysis = await callGemini(`Summarize the key facts from this text:\n\n${textToAnalyze}`, [], "", 1, null, "gemini-3.5-flash-lite");
+               knownFacts += `\n### Text Analysis\n${analysis}\n`;
+            } catch (err) {
+               knownFacts += `\n### Text Analysis Failed\n`;
+            }
           } else if (agentAction.tool === "web_search") {
             const query = agentAction.tool_input;
             global.activeJobs[interaction_id].progress = (step + 1) * 20;
