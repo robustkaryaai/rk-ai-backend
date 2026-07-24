@@ -1,5 +1,6 @@
 import path from "path";
 import fs from "fs";
+import { createRequire } from "module";
 import os from "os";
 import { logError, logInfo } from "../../utils/logger.js";
 import { GoogleGenAI } from "@google/genai";
