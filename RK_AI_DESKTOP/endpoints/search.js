@@ -2,71 +2,44 @@ import express from "express";
 import ytSearch from "yt-search";
 // Removed unstable duck-duck-scrape import
 async function robustSearch(query) {
-  // 1. Try Brave Search API (User preferred)
-  if (process.env.BRAVE_API_KEY) {
-    try {
-      const res = await fetch("https://api.search.brave.com/res/v1/web/search?q=" + encodeURIComponent(query), {
-        headers: { "X-Subscription-Token": process.env.BRAVE_API_KEY }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.web && data.web.results) {
-          return { results: data.web.results.map(r => ({ title: r.title, url: r.url, description: r.description })) };
-        }
-      }
-    } catch (e) {
-      console.error("Brave Search failed:", e.message);
-    }
+  if (!process.env.LANGSEARCH_API_KEY) {
+    console.error("LANGSEARCH_API_KEY is missing from environment variables.");
+    return { results: [] };
   }
 
-  // 2. Try Tavily API
-  if (process.env.TAVILY_API_KEY) {
-    try {
-      const res = await fetch("https://api.tavily.com/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: process.env.TAVILY_API_KEY, query })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.results) {
-          return { results: data.results.map(r => ({ title: r.title, url: r.url, description: r.content })) };
-        }
-      }
-    } catch (e) {
-      console.error("Tavily Search failed:", e.message);
-    }
-  }
-
-  // 3. Try Google CSE
-  if (process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_CX_ID) {
-    try {
-      const res = await fetch(`https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_SEARCH_API_KEY}&cx=${process.env.GOOGLE_SEARCH_CX_ID}&q=${encodeURIComponent(query)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.items) {
-          return { results: data.items.map(r => ({ title: r.title, url: r.link, description: r.snippet })) };
-        }
-      }
-    } catch (e) {
-      console.error("Google CSE failed:", e.message);
-    }
-  }
-
-  // 4. Try Public SearXNG as last free resort
   try {
-    const res = await fetch(`https://searx.be/search?q=${encodeURIComponent(query)}&format=json`);
+    const res = await fetch("https://api.langsearch.com/v1/web-search", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.LANGSEARCH_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        query: query,
+        freshness: "noLimit",
+        summary: true,
+        count: 10
+      })
+    });
+
     if (res.ok) {
       const data = await res.json();
-      if (data.results) {
-        return { results: data.results.map(r => ({ title: r.title, url: r.url, description: r.content })) };
+      if (data.data && data.data.webPages && data.data.webPages.value) {
+        return { 
+          results: data.data.webPages.value.map(r => ({ 
+            title: r.name, 
+            url: r.url, 
+            description: r.summary || r.snippet 
+          })) 
+        };
       }
+    } else {
+      console.error(`LangSearch API failed with status: ${res.status}`);
     }
   } catch (e) {
-    console.error("SearXNG failed:", e.message);
+    console.error("LangSearch failed:", e.message);
   }
 
-  // 4. Fallback if all else fails
   return { results: [] };
 }
 import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
