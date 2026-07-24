@@ -1,6 +1,6 @@
 import express from "express";
 import ytSearch from "yt-search";
-import { search as ddgSearch } from "duck-duck-scrape";
+import { search as ddgSearch, SafeSearchType } from "duck-duck-scrape";
 import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
 import { callGemini } from "../../RK_AI_HOME/services/gemini.js";
 import { ensureLimitFile, checkAndConsume } from "../../RK_AI_HOME/limitManager.js";
@@ -97,22 +97,67 @@ router.post("/deep-research", async (req, res) => {
       try {
         logInfo(`[Deep Research] Starting cloud deep research for: "${topic}"`);
 
-        // Basic agentic flow for now: Multi-query extraction
-        const plannerPrompt = `The user wants deep research on: "${topic}". Generate 3 distinct search queries to gather comprehensive information on this topic. Return only the queries, one per line.`;
-        const plannerRes = await callGemini(plannerPrompt, [], "", 2, null, "gemma-4-26b-a4b-it");
-        const queries = plannerRes.split("\n").map(q => q.trim()).filter(q => q.length > 0);
+        // Autonomous ReAct Loop
+        let knownFacts = "";
+        let isCompleted = false;
+        let finalReport = "No report generated.";
         
-        let allFindings = "";
-        for (const query of queries) {
-          const searchResults = await ddgSearch(query, { safeSearch: "moderate" });
-          const topResults = searchResults.results.slice(0, 3).map(r => `Title: ${r.title}\nSnippet: ${r.description}\nURL: ${r.url}`).join("\n\n");
-          allFindings += `### Search: ${query}\n${topResults}\n\n`;
+        for (let step = 0; step < 5; step++) {
+          const prompt = `You are an autonomous Deep Research agent.
+Your objective is to thoroughly research: "${topic}".
+Known Facts so far:
+${knownFacts}
+
+You MUST output EXACTLY one valid JSON object and nothing else. Do not use Markdown wrappers like \`\`\`json.
+{
+  "reasoning": "What do I need to search for next? Or do I have enough info to complete the report?",
+  "tool": "web_search" | "completed",
+  "tool_input": "search query (if web_search) OR final comprehensive Markdown report (if completed)"
+}`;
+          
+          let resText = await callGemini(prompt, [], "", 2, null, "gemma-4-26b-a4b-it");
+          let agentAction;
+          
+          try {
+            // Strip any markdown code blocks
+            resText = resText.replace(/```json/g, "").replace(/```/g, "").trim();
+            const jsonMatch = resText.match(/\{[\s\S]*\}/);
+            agentAction = JSON.parse(jsonMatch ? jsonMatch[0] : resText);
+          } catch (e) {
+            logError("JSON parsing failed during loop:", e);
+            // Break out of loop cleanly on formatting failure
+            break; 
+          }
+          
+          if (agentAction.tool === "completed") {
+            finalReport = agentAction.tool_input;
+            isCompleted = true;
+            break;
+          } else if (agentAction.tool === "web_search") {
+            const query = agentAction.tool_input;
+            global.activeJobs[interaction_id].progress = (step + 1) * 20;
+            logInfo(`[Deep Research] Agent searching: "${query}"`);
+            try {
+              // BUG FIX: duck-duck-scrape crashes on TypeScript enum SafeSearchType.MODERATE 
+              // Passing the explicit string "MODERATE" bypasses the 'in' keyword bug in sanityCheck.
+              const searchResults = await ddgSearch(query, { safeSearch: "MODERATE" });
+              const topResults = searchResults.results.slice(0, 4).map(r => `Title: ${r.title}\nSnippet: ${r.description}\nURL: ${r.url}`).join("\n\n");
+              knownFacts += `\n### Web Search Result for "${query}"\n${topResults}\n`;
+            } catch (err) {
+              knownFacts += `\n### Web Search Result for "${query}"\nSearch failed or no results.\n`;
+            }
+          }
+        }
+        
+        if (!isCompleted) {
+          logInfo("[Deep Research] Loop limit reached. Forcing synthesis.");
+          const synthesisPrompt = `Synthesize the following facts into a deeply detailed, final Markdown report about "${topic}":\n\n${knownFacts}`;
+          finalReport = await callGemini(synthesisPrompt, [], "", 2, null, "gemma-4-26b-a4b-it");
+          // If returned as object, extract text
+          if (typeof finalReport === "object") finalReport = finalReport.text || "Synthesis failed.";
         }
 
-        const synthesisPrompt = `You are a research analyst. Synthesize the following search findings into a comprehensive, deeply detailed Markdown report about "${topic}".\n\nFindings:\n${allFindings}\n\nEnsure you cite URLs where appropriate.`;
-        const finalReport = await callGemini(synthesisPrompt, [], "", 2, null, "gemma-4-26b-a4b-it");
-
-        global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: { report: finalReport.text || finalReport } };
+        global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: { report: finalReport } };
       } catch (err) {
         logError("Background Deep Research Error:", err);
         global.activeJobs[interaction_id] = { status: "FAILED", error: err.message };
