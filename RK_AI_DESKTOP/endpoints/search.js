@@ -154,8 +154,8 @@ ${knownFacts}
 You MUST output EXACTLY one valid JSON object and nothing else. Do not use Markdown wrappers like \`\`\`json.
 {
   "reasoning": "Explain your logic for this step. Did you make a plan yet? What are you doing next?",
-  "tool": "web_search" | "analyze_text" | "completed",
-  "tool_input": "search query (for web_search) OR text to summarize (for analyze_text) OR final comprehensive Markdown report (for completed)"
+  "tool": "web_search" | "analyze_text" | "terminal" | "completed",
+  "tool_input": "search query (for web_search) OR text to summarize (for analyze_text) OR bash command (for terminal) OR final Markdown report (for completed)"
 }`;
           
           let resText = await callGemini(prompt, [], "", 2, null, "gemma-4-26b-a4b-it");
@@ -176,6 +176,23 @@ You MUST output EXACTLY one valid JSON object and nothing else. Do not use Markd
             finalReport = agentAction.tool_input;
             isCompleted = true;
             break;
+          }
+          
+          // ADD MEMORY OF ACTIONS SO IT REMEMBERS WHAT IT DID
+          knownFacts += `\n### Step ${step+1} AI Action\nReasoning: ${agentAction.reasoning}\nTool Used: ${agentAction.tool}\nInput: ${agentAction.tool_input}\n`;
+
+          if (agentAction.tool === "terminal") {
+            const command = agentAction.tool_input;
+            logInfo(`[Deep Research] Agent executing terminal command: "${command}"`);
+            try {
+               const { exec } = await import("child_process");
+               const util = await import("util");
+               const execAsync = util.promisify(exec);
+               const { stdout, stderr } = await execAsync(command, { timeout: 30000 });
+               knownFacts += `\n### Terminal Output for "${command}"\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}\n`;
+            } catch (err) {
+               knownFacts += `\n### Terminal Error for "${command}"\n${err.message}\n`;
+            }
           } else if (agentAction.tool === "analyze_text") {
             const textToAnalyze = agentAction.tool_input;
             logInfo(`[Deep Research] Agent analyzing text snippet.`);
