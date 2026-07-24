@@ -61,7 +61,11 @@ export class SupabaseVectorStore extends VectorStore {
       });
 
       if (error) {
-        // If RPC doesn't exist, this will throw
+        if (error.code === 'PGRST202') {
+           logInfo("[VectorStore] Supabase missing match_documents RPC. Falling back to local memory store.");
+           import("./retriever.js").then(m => m.Retriever.setUseSupabase(false));
+           return await import("./retriever.js").then(m => m.Retriever.getFallbackStore().search(embedding, slug, topK));
+        }
         throw error;
       }
       return data || [];

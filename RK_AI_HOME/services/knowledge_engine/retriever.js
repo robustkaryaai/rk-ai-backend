@@ -25,6 +25,10 @@ export class Retriever {
     return useSupabase;
   }
   
+  static getVectorStore() {
+    return useSupabase ? supabaseStore : fallbackStore;
+  }
+  
   static setUseSupabase(val) {
     useSupabase = val;
   }
