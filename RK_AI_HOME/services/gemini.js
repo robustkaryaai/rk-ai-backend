@@ -32,18 +32,16 @@ export async function listGeminiModels(customApiKey = null) {
     // Since we want accuracy, let's use the known good models list.
     
     return [
-      { name: "gemini-3.1-flash-lite-preview", displayName: "Gemini 3.1 Flash Lite (Default)" },
-      { name: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite" },
-      { name: "gemini-3-flash", displayName: "Gemini 3 Flash" },
-      { name: "gemma-3-27b", displayName: "Gemma 3 27B" },
-      { name: "gemma-3-12b", displayName: "Gemma 3 12B" },
-      { name: "gemma-3-4b", displayName: "Gemma 3 4B" }
+      { name: "gemma-4-26b-a4b-it", displayName: "Gemma 4 26B (Pro Default)" },
+      { name: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite (Elite/Quantum Default)" },
+      { name: "gemini-3.1-flash-lite-preview", displayName: "Gemini 3.1 Flash Lite (Pro Fallback)" },
+      { name: "gemma-4-31b-it", displayName: "Gemma 4 31B (Elite/Quantum Fallback)" }
     ];
   } catch (err) {
     logError("❌ Failed to list Gemini models:", err.message);
     return [
-      { name: "gemini-3.1-flash-lite-preview", displayName: "Gemini 3.1 Flash Lite (Default)" },
-      { name: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite" }
+      { name: "gemma-4-26b-a4b-it", displayName: "Gemma 4 26B (Pro Default)" },
+      { name: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite (Elite/Quantum Default)" }
     ];
   }
 }
@@ -63,9 +61,8 @@ User Says:
 ${userPrompt}
 `;
 
-    // Use custom API key and model if provided, otherwise fallback to system default
     const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
-    const modelToUse = customModel || "gemini-2.5-flash-lite"; // Default to 2.5-flash-lite
+    const modelToUse = customModel || "gemma-4-26b-a4b-it"; // Default to Pro
 
     const response = await currentGenAI.models.generateContent({
       model: modelToUse,
@@ -92,8 +89,8 @@ ${userPrompt}
     // If using custom API key, fallback to System Keys if they hit a rate limit!
     if (customApiKey) {
       logError("❌ Gemini custom key failure:", msg);
-      if (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("rate")) {
-          logInfo("🔄 Custom Key out of quota! Falling back to System API Keys to prevent downtime...");
+      if (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("rate") || msg.includes("404")) {
+          logInfo("🔄 Custom Key failure! Falling back to System API Keys to prevent downtime...");
           customApiKey = null; // Remove custom key for the retry
           // We will let it fall through to the system retry logic below!
       } else {
@@ -101,7 +98,16 @@ ${userPrompt}
       }
     }
 
-    // ✅ Auto switch and delay on quota/rate limits or 503s for system keys
+    // Determine fallback model
+    const currentModel = customModel || "gemma-4-26b-a4b-it";
+    let fallbackModel = currentModel;
+    if (currentModel === "gemma-4-26b-a4b-it") {
+        fallbackModel = "gemini-3.1-flash-lite-preview"; // Pro fallback
+    } else if (currentModel === "gemini-3.5-flash-lite") {
+        fallbackModel = "gemma-4-31b-it"; // Elite fallback
+    }
+
+    // ✅ Auto switch and delay on quota/rate limits or 404s/503s
     if (
       msg.includes("503") ||
       msg.includes("overloaded") ||
@@ -109,16 +115,23 @@ ${userPrompt}
       msg.includes("429") ||
       msg.includes("quota") ||
       msg.includes("exhausted") ||
-      msg.includes("rate")
+      msg.includes("rate") ||
+      msg.includes("404") ||
+      msg.includes("not found")
     ) {
-      logError(`⚠ Gemini overloaded/busy. Switching API Key and waiting 60 seconds to cool down (Never Give Up Mode)... Exact Error: ${msg}`);
-      switchApiKey();
+      logError(`⚠ Gemini overloaded/missing. Error: ${msg}`);
       
-      // Wait 60 seconds to completely clear any rate limits or server spikes
-      await new Promise(r => setTimeout(r, 60000));
+      // If it's a rate limit or 503, swap keys and wait
+      if (!msg.includes("404") && !msg.includes("not found")) {
+          logError(`Switching API Key and waiting 60 seconds...`);
+          switchApiKey();
+          await new Promise(r => setTimeout(r, 60000));
+      } else {
+          logError(`Model missing! Instantly retrying with fallback model: ${fallbackModel}`);
+      }
 
       if (retries > 0) {
-        return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, customModel, slug);
+        return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, fallbackModel, slug);
       }
     }
 

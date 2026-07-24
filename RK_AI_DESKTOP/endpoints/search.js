@@ -99,7 +99,7 @@ router.post("/deep-research", async (req, res) => {
 
         // Basic agentic flow for now: Multi-query extraction
         const plannerPrompt = `The user wants deep research on: "${topic}". Generate 3 distinct search queries to gather comprehensive information on this topic. Return only the queries, one per line.`;
-        const plannerRes = await callGemini(plannerPrompt, [], "", 2, null, "gemini-2.5-pro");
+        const plannerRes = await callGemini(plannerPrompt, [], "", 2, null, "gemma-4-26b-a4b-it");
         const queries = plannerRes.split("\n").map(q => q.trim()).filter(q => q.length > 0);
         
         let allFindings = "";
@@ -110,9 +110,9 @@ router.post("/deep-research", async (req, res) => {
         }
 
         const synthesisPrompt = `You are a research analyst. Synthesize the following search findings into a comprehensive, deeply detailed Markdown report about "${topic}".\n\nFindings:\n${allFindings}\n\nEnsure you cite URLs where appropriate.`;
-        const finalReport = await callGemini(synthesisPrompt, [], "", 2, null, "gemini-2.5-pro");
+        const finalReport = await callGemini(synthesisPrompt, [], "", 2, null, "gemma-4-26b-a4b-it");
 
-        global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: { report: finalReport.text } };
+        global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: { report: finalReport.text || finalReport } };
       } catch (err) {
         logError("Background Deep Research Error:", err);
         global.activeJobs[interaction_id] = { status: "FAILED", error: err.message };

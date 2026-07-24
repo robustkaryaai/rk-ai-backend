@@ -28,9 +28,9 @@ Structure:
 
 export async function generateAndZipCode(prompt, slug, interaction_id, tier = "free") {
     // Select model based on tier
-    let customModel = "gemini-2.5-flash-lite"; // Free and Pro
+    let customModel = "gemma-4-26b-a4b-it"; // Free and Pro
     if (tier === "elite" || tier === "quantum") {
-        customModel = "gemini-3.1-flash-lite-preview";
+        customModel = "gemini-3.5-flash-lite";
     }
 
   try {
