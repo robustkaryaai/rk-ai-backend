@@ -62,9 +62,36 @@ export class SupabaseVectorStore extends VectorStore {
 
       if (error) {
         if (error.code === 'PGRST202') {
-           logInfo("[VectorStore] Supabase missing match_documents RPC. Falling back to local memory store.");
-           import("./retriever.js").then(m => m.Retriever.setUseSupabase(false));
-           return await import("./retriever.js").then(m => m.Retriever.getFallbackStore().search(embedding, slug, topK));
+           logInfo("[VectorStore] Supabase missing match_documents RPC. Fetching vectors to compute similarity locally...");
+           // Fallback: Fetch all docs for this slug and compute similarity manually in Node.js
+           const { data: allDocs, error: fetchErr } = await supabase
+             .from('documents')
+             .select('*')
+             .eq('slug', slug);
+             
+           if (fetchErr) throw fetchErr;
+           
+           if (!allDocs || allDocs.length === 0) return [];
+           
+           // Helper for cosine similarity
+           const cosineSim = (a, b) => {
+               if (typeof a === 'string') a = JSON.parse(a);
+               if (typeof b === 'string') b = JSON.parse(b);
+               let dot = 0, normA = 0, normB = 0;
+               for (let i = 0; i < a.length; i++) {
+                 dot += a[i] * b[i];
+                 normA += a[i] * a[i];
+                 normB += b[i] * b[i];
+               }
+               return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+           };
+           
+           const results = allDocs.map(doc => {
+               return { ...doc, similarity: cosineSim(embedding, doc.embedding) };
+           });
+           
+           results.sort((a, b) => b.similarity - a.similarity);
+           return results.slice(0, topK);
         }
         throw error;
       }
