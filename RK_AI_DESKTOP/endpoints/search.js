@@ -149,7 +149,7 @@ router.post("/media", async (req, res) => {
   }
 });
 
-// Cloud Deep Research (Agentic Loop)
+// Cloud Deep Research (Native Gemini Search Grounding)
 router.post("/deep-research", async (req, res) => {
   try {
     const rawTopic = req.body.topic || req.body.prompt || req.body.query;
@@ -177,121 +177,42 @@ router.post("/deep-research", async (req, res) => {
     // Fire and forget
     (async () => {
       try {
-        logInfo(`[Deep Research] Starting cloud deep research for: "${topic}"`);
+        logInfo(`[Deep Research] Starting Google Search Grounding for: "${topic}"`);
+        global.activeJobs[interaction_id].progress = 50;
 
-        // Autonomous ReAct Loop
-        let knownFacts = "";
-        let isCompleted = false;
-        let finalReport = "No report generated.";
-        
-        for (let step = 0; step < 5; step++) {
-          const prompt = `You are an elite Autonomous Deep Research AI.
-Your objective is to thoroughly research: "${topic}".
+        const prompt = `You are an elite Autonomous Deep Research AI.
+Your objective is to thoroughly research and write a highly detailed Markdown report about: "${topic}".
+Use your native Google Search tools to gather real-time data, academic research, and industry reports.
+Do not hallucinate. Provide factual, up-to-date information.`;
 
-STRICT RULES:
-1. On your very first step, you MUST formulate a strict research plan before taking any action.
-2. You must execute your plan step-by-step.
-3. NEVER fake facts.
+        // Pass useWebSearch=true and use gemini-2.5-flash because Gemma doesn't support tools
+        let finalReport = await callGemini(
+            prompt, 
+            [], 
+            "", 
+            2, 
+            null, 
+            "gemini-2.5-flash", // Must use gemini-2.x for tools
+            null, 
+            true // useWebSearch = true
+        );
 
-Known Facts so far:
-${knownFacts}
-
-You MUST output EXACTLY one valid JSON object and nothing else. Do not use Markdown wrappers like \`\`\`json.
-{
-  "reasoning": "Explain your logic for this step. Did you make a plan yet? What are you doing next?",
-  "tool": "web_search" | "analyze_text" | "terminal" | "completed",
-  "tool_input": "search query (for web_search) OR text to summarize (for analyze_text) OR bash command (for terminal) OR final Markdown report (for completed)"
-}`;
-          
-          let resText = await callGemini(prompt, [], "", 2, null, "gemma-4-26b-a4b-it");
-          let agentAction;
-          
-          try {
-            // Strip any markdown code blocks
-            resText = resText.replace(/```json/g, "").replace(/```/g, "").trim();
-            const jsonMatch = resText.match(/\{[\s\S]*\}/);
-            agentAction = JSON.parse(jsonMatch ? jsonMatch[0] : resText);
-          } catch (e) {
-            logError("JSON parsing failed during loop:", e);
-            // Break out of loop cleanly on formatting failure
-            break; 
-          }
-          
-          if (agentAction.tool === "completed") {
-            finalReport = agentAction.tool_input;
-            isCompleted = true;
-            break;
-          }
-          
-          // ADD MEMORY OF ACTIONS SO IT REMEMBERS WHAT IT DID
-          knownFacts += `\n### Step ${step+1} AI Action\nReasoning: ${agentAction.reasoning}\nTool Used: ${agentAction.tool}\nInput: ${agentAction.tool_input}\n`;
-
-          if (agentAction.tool === "terminal") {
-            const command = agentAction.tool_input;
-            logInfo(`[Deep Research] Agent executing terminal command: "${command}"`);
-            try {
-               const { exec } = await import("child_process");
-               const util = await import("util");
-               const execAsync = util.promisify(exec);
-               const { stdout, stderr } = await execAsync(command, { timeout: 30000 });
-               knownFacts += `\n### Terminal Output for "${command}"\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}\n`;
-            } catch (err) {
-               knownFacts += `\n### Terminal Error for "${command}"\n${err.message}\n`;
-            }
-          } else if (agentAction.tool === "analyze_text") {
-            const textToAnalyze = agentAction.tool_input;
-            logInfo(`[Deep Research] Agent analyzing text snippet.`);
-            try {
-               const analysis = await callGemini(`Summarize the key facts from this text:\n\n${textToAnalyze}`, [], "", 1, null, "gemini-3.5-flash-lite");
-               knownFacts += `\n### Text Analysis\n${analysis}\n`;
-            } catch (err) {
-               knownFacts += `\n### Text Analysis Failed\n`;
-            }
-          } else if (agentAction.tool === "web_search") {
-            const query = agentAction.tool_input;
-            global.activeJobs[interaction_id].progress = (step + 1) * 20;
-            logInfo(`[Deep Research] Agent searching: "${query}"`);
-            try {
-              const searchResults = await robustSearch(query);
-              const topResults = searchResults.results.slice(0, 4).map(r => `Title: ${r.title}\nSnippet: ${r.description}\nURL: ${r.url}`).join("\n\n");
-              knownFacts += `\n### Web Search Result for "${query}"\n${topResults}\n`;
-            } catch (err) {
-              knownFacts += `\n### Web Search Result for "${query}"\nSearch failed or no results.\n`;
-            }
-          }
-          
-          // CRITICAL: Prevent Out-Of-Memory (OOM) crashes on Render's 512MB tier
-          // Keep only the most recent ~15000 chars of known facts to keep the memory footprint light
-          if (knownFacts.length > 15000) {
-             knownFacts = "...[TRUNCATED TO SAVE MEMORY]...\n" + knownFacts.slice(-15000);
-          }
-        }
-        
-        if (!isCompleted) {
-          logInfo("[Deep Research] Loop limit reached. Forcing synthesis.");
-          const synthesisPrompt = `Synthesize the following facts into a deeply detailed, final Markdown report about "${topic}":\n\n${knownFacts}`;
-          finalReport = await callGemini(synthesisPrompt, [], "", 2, null, "gemma-4-26b-a4b-it");
-          // If returned as object, extract text
-          if (typeof finalReport === "object") finalReport = finalReport.text || "Synthesis failed.";
+        if (typeof finalReport === "object") {
+            finalReport = finalReport.text || "Synthesis failed.";
         }
 
-        global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: { report: finalReport } };
+        global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: { report: finalReport }, progress: 100 };
       } catch (err) {
         logError("Background Deep Research Error:", err);
         global.activeJobs[interaction_id] = { status: "FAILED", error: err.message };
       }
     })();
 
-    return res.json({
-      ok: true,
-      interaction_id,
-      status: "RUNNING",
-      message: "Deep research started in the background."
-    });
+    return res.json({ ok: true, interaction_id, message: "Deep research started using Native Gemini Grounding" });
 
   } catch (err) {
-    logError("[Deep Research] Error:", err);
-    return res.status(500).json({ ok: false, error: "Cloud Deep Research failed" });
+    logError("Deep Research API Error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 

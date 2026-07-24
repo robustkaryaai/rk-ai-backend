@@ -46,7 +46,7 @@ export async function listGeminiModels(customApiKey = null) {
   }
 }
 
-export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null, slug = null) {
+export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null, slug = null, useWebSearch = false) {
   try {
     const historyText = Array.isArray(chatHistory)
       ? chatHistory.join("\n")
@@ -64,9 +64,15 @@ ${userPrompt}
     const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
     const modelToUse = customModel || "gemma-4-26b-a4b-it"; // Default to Pro
 
+    const config = {};
+    if (useWebSearch) {
+       config.tools = [{ googleSearch: {} }];
+    }
+
     const response = await currentGenAI.models.generateContent({
       model: modelToUse,
-      contents: finalPrompt
+      contents: finalPrompt,
+      config: config
     });
     console.log(`💬 Gemini Response (${modelToUse}):`, response.text?.trim().substring(0, 100) + "...");
 
