@@ -2,42 +2,85 @@ import express from "express";
 import ytSearch from "yt-search";
 // Removed unstable duck-duck-scrape import
 async function robustSearch(query) {
-  if (!process.env.LANGSEARCH_API_KEY) {
-    console.error("LANGSEARCH_API_KEY is missing from environment variables.");
-    return { results: [] };
+  // 1. Try LangSearch API (Primary)
+  const langSearchKey = process.env.LANGSEARCH_API_KEY || "sk-d2dd78018749414e917eee25412d27cf";
+  if (langSearchKey) {
+    try {
+      const res = await fetch("https://api.langsearch.com/v1/web-search", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${langSearchKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ query: query, freshness: "noLimit", summary: true, count: 10 })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data && data.data.webPages && data.data.webPages.value) {
+          return { results: data.data.webPages.value.map(r => ({ title: r.name, url: r.url, description: r.summary || r.snippet })) };
+        }
+      } else {
+        console.error("LangSearch failed with status:", res.status);
+      }
+    } catch (e) {
+      console.error("LangSearch error:", e.message);
+    }
   }
 
-  try {
-    const res = await fetch("https://api.langsearch.com/v1/web-search", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.LANGSEARCH_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        query: query,
-        freshness: "noLimit",
-        summary: true,
-        count: 10
-      })
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data.data && data.data.webPages && data.data.webPages.value) {
-        return { 
-          results: data.data.webPages.value.map(r => ({ 
-            title: r.name, 
-            url: r.url, 
-            description: r.summary || r.snippet 
-          })) 
-        };
+  // 2. Try Brave Search API
+  if (process.env.BRAVE_API_KEY) {
+    try {
+      const res = await fetch("https://api.search.brave.com/res/v1/web/search?q=" + encodeURIComponent(query), {
+        headers: { "X-Subscription-Token": process.env.BRAVE_API_KEY }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.web && data.web.results) {
+          return { results: data.web.results.map(r => ({ title: r.title, url: r.url, description: r.description })) };
+        }
       }
-    } else {
-      console.error(`LangSearch API failed with status: ${res.status}`);
+    } catch (e) {
+      console.error("Brave Search failed:", e.message);
     }
+  }
+
+  // 3. Try Tavily API
+  if (process.env.TAVILY_API_KEY) {
+    try {
+      const res = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: process.env.TAVILY_API_KEY, query })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.results) {
+          return { results: data.results.map(r => ({ title: r.title, url: r.url, description: r.content })) };
+        }
+      }
+    } catch (e) {
+      console.error("Tavily Search failed:", e.message);
+    }
+  }
+
+  // 4. Try Wikipedia API (Ultimate Free Fallback, No Key Required, No 403s)
+  console.log("Falling back to Wikipedia API...");
+  try {
+      const res = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json`);
+      if (res.ok) {
+          const data = await res.json();
+          if (data.query && data.query.search) {
+              return { 
+                  results: data.query.search.map(r => ({ 
+                      title: r.title, 
+                      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(r.title.replace(/ /g, '_'))}`, 
+                      description: r.snippet.replace(/<[^>]*>?/gm, '') 
+                  })) 
+              };
+          }
+      }
   } catch (e) {
-    console.error("LangSearch failed:", e.message);
+      console.error("Wikipedia Search failed:", e.message);
   }
 
   return { results: [] };
