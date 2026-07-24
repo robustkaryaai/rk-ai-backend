@@ -19,7 +19,26 @@ async function robustSearch(query) {
     }
   }
 
-  // 2. Try Google CSE
+  // 2. Try Tavily API
+  if (process.env.TAVILY_API_KEY) {
+    try {
+      const res = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: process.env.TAVILY_API_KEY, query })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.results) {
+          return { results: data.results.map(r => ({ title: r.title, url: r.url, description: r.content })) };
+        }
+      }
+    } catch (e) {
+      console.error("Tavily Search failed:", e.message);
+    }
+  }
+
+  // 3. Try Google CSE
   if (process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_CX_ID) {
     try {
       const res = await fetch(`https://www.googleapis.com/customsearch/v1?key=${process.env.GOOGLE_SEARCH_API_KEY}&cx=${process.env.GOOGLE_SEARCH_CX_ID}&q=${encodeURIComponent(query)}`);
@@ -34,7 +53,7 @@ async function robustSearch(query) {
     }
   }
 
-  // 3. Try Public SearXNG as last free resort
+  // 4. Try Public SearXNG as last free resort
   try {
     const res = await fetch(`https://searx.be/search?q=${encodeURIComponent(query)}&format=json`);
     if (res.ok) {
