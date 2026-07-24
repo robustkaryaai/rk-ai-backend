@@ -1,32 +1,30 @@
 import express from "express";
 import ytSearch from "yt-search";
+import axios from "axios";
 // Removed unstable duck-duck-scrape import
+
 async function robustSearch(query) {
   // 1. Try LangSearch API (Primary)
   const langSearchKey = process.env.LANGSEARCH_API_KEY || "sk-d2dd78018749414e917eee25412d27cf";
   if (langSearchKey) {
     try {
-      const res = await fetch("https://api.langsearch.com/v1/web-search", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${langSearchKey}`,
-          "Content-Type": "application/json",
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "X-Forwarded-For": "68.21.43.12", // Spoof a residential IP
-          "Referer": "https://www.google.com/"
-        },
-        body: JSON.stringify({ query: query, freshness: "noLimit", summary: true, count: 10 })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.data && data.data.webPages && data.data.webPages.value) {
-          return { results: data.data.webPages.value.map(r => ({ title: r.name, url: r.url, description: r.summary || r.snippet })) };
+      const res = await axios.post("https://api.langsearch.com/v1/web-search", 
+        { query: query, freshness: "noLimit", summary: true, count: 10 },
+        {
+          headers: {
+            "Authorization": `Bearer ${langSearchKey}`,
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "X-Forwarded-For": "68.21.43.12",
+            "Referer": "https://www.google.com/"
+          }
         }
-      } else {
-        console.error("LangSearch failed with status:", res.status);
+      );
+      if (res.status === 200 && res.data?.data?.webPages?.value) {
+          return { results: res.data.data.webPages.value.map(r => ({ title: r.name, url: r.url, description: r.summary || r.snippet })) };
       }
     } catch (e) {
-      console.error("LangSearch error:", e.message);
+      console.error("LangSearch error:", e.response ? e.response.status : e.message);
     }
   }
 

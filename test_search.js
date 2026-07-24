@@ -1,6 +1,4 @@
-import fetch from "node-fetch";
-import dotenv from "dotenv";
-dotenv.config();
+// Testing native fetch
 
 async function testLangSearch(query) {
     const LANGSEARCH_API_KEY = "sk-d2dd78018749414e917eee25412d27cf";
