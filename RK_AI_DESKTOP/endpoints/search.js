@@ -235,21 +235,28 @@ const searchCache = new Map();
 // Universal Search Microservice (For Desktop Qwen & Others)
 router.post("/search-tool", async (req, res) => {
   try {
-    const { query } = req.body;
+    const { query, mode } = req.body;
     const deviceSlug = req.headers["x-device-slug"];
 
     if (!query || !deviceSlug) {
       return res.status(400).json({ ok: false, error: "Query and device slug required" });
     }
 
+    // Append search modes to force Native Gemini to target specific domains
+    let finalQuery = query;
+    if (mode === "github") finalQuery += " site:github.com";
+    else if (mode === "reddit") finalQuery += " site:reddit.com";
+    else if (mode === "academic") finalQuery += " site:arxiv.org OR site:nature.com OR site:sciencedirect.com";
+    else if (mode === "dev") finalQuery += " site:stackoverflow.com OR site:dev.to OR site:medium.com";
+
     // Check cache
-    const cacheKey = query.toLowerCase().trim();
+    const cacheKey = finalQuery.toLowerCase().trim();
     if (searchCache.has(cacheKey)) {
-      logInfo(`[Search Tool] Cache hit for "${query}"`);
+      logInfo(`[Search Tool] Cache hit for "${finalQuery}"`);
       return res.json({ ok: true, source: "cache", response: searchCache.get(cacheKey) });
     }
 
-    logInfo(`[Search Tool] Live search for "${query}"`);
+    logInfo(`[Search Tool] Live search for "${finalQuery}"`);
     
     // Verify user has buffer quota (500 tokens is enough for a basic search)
     const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
@@ -264,7 +271,7 @@ router.post("/search-tool", async (req, res) => {
     // We use returnMetadata=true for exact billing
     const prompt = `Provide a concise, factual answer to the following query. 
 Use your Google Search grounding tool to find the most accurate real-time information.
-Query: "${query}"`;
+Query: "${finalQuery}"`;
 
     const result = await callGemini(
       prompt, 

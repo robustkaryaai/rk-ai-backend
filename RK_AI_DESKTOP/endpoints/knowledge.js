@@ -113,7 +113,13 @@ router.post("/generate-rag", async (req, res) => {
     const systemPrompt = `You are an expert Document Analysis AI. Answer the user's query strictly using the provided context chunks.
 Do not hallucinate facts outside the context.
 If the context does not contain the answer, say "I cannot find the answer in the provided document chunks."
-Always cite your sources (e.g., 'According to Chunk 2...').`;
+
+CRITICAL CITATION RULES:
+1. Every factual claim MUST be followed by an exact inline citation referencing the chunk (e.g., [Chunk 1]).
+2. When quoting directly from the text, use markdown blockquotes (>) and append the chunk number.
+Example:
+> "The revenue increased by 20% in Q3." [Chunk 2]
+`;
 
     const finalPrompt = `Context:\n${contextStr}\n\nQuery: ${query}`;
 
