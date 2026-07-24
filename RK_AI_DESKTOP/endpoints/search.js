@@ -215,6 +215,12 @@ You MUST output EXACTLY one valid JSON object and nothing else. Do not use Markd
               knownFacts += `\n### Web Search Result for "${query}"\nSearch failed or no results.\n`;
             }
           }
+          
+          // CRITICAL: Prevent Out-Of-Memory (OOM) crashes on Render's 512MB tier
+          // Keep only the most recent ~15000 chars of known facts to keep the memory footprint light
+          if (knownFacts.length > 15000) {
+             knownFacts = "...[TRUNCATED TO SAVE MEMORY]...\n" + knownFacts.slice(-15000);
+          }
         }
         
         if (!isCompleted) {

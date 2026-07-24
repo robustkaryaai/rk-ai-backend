@@ -123,9 +123,9 @@ ${userPrompt}
       
       // If it's a rate limit or 503, swap keys and wait
       if (!msg.includes("404") && !msg.includes("not found")) {
-          logError(`Switching API Key and waiting 60 seconds...`);
+          logError(`Switching API Key and waiting 4 seconds...`);
           switchApiKey();
-          await new Promise(r => setTimeout(r, 60000));
+          await new Promise(r => setTimeout(r, 4000));
       } else {
           logError(`Model missing! Instantly retrying with fallback model: ${fallbackModel}`);
       }
