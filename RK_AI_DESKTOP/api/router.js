@@ -40,11 +40,15 @@ export function createDesktopApiRouter({ manager, bridge, planService, scheduler
   });
 
   router.get("/jobs/:id", async (req, res) => {
-    const job = await manager.getJob(req.params.id);
-    if (!job) {
-      return res.status(404).json({ ok: false, error: "Job not found." });
+    try {
+      const job = await manager.getJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ ok: false, error: "Job not found." });
+      }
+      return res.json({ ok: true, job });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: error.message });
     }
-    return res.json({ ok: true, job });
   });
 
   router.post("/jobs/:id/cancel", async (req, res) => {
@@ -60,15 +64,19 @@ export function createDesktopApiRouter({ manager, bridge, planService, scheduler
   });
 
   router.get("/jobs/:id/report", async (req, res) => {
-    const job = await manager.getJob(req.params.id);
-    if (!job) {
-      return res.status(404).json({ ok: false, error: "Job not found." });
+    try {
+      const job = await manager.getJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ ok: false, error: "Job not found." });
+      }
+      return res.json({
+        ok: true,
+        report: job.report || null,
+        status: job.status,
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: error.message });
     }
-    return res.json({
-      ok: true,
-      report: job.report || null,
-      status: job.status,
-    });
   });
 
   router.post("/device/connect", async (req, res) => {
