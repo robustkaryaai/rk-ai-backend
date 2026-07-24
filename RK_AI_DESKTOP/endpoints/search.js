@@ -185,14 +185,14 @@ Your objective is to thoroughly research and write a highly detailed Markdown re
 Use your native Google Search tools to gather real-time data, academic research, and industry reports.
 Do not hallucinate. Provide factual, up-to-date information.`;
 
-        // Pass useWebSearch=true and use gemini-2.5-flash because Gemma doesn't support tools
+        // Pass useWebSearch=true and use gemini-3.1-flash-lite-preview because Gemma doesn't support tools
         let finalReport = await callGemini(
             prompt, 
             [], 
             "", 
             2, 
             null, 
-            "gemini-2.5-flash", // Must use gemini-2.x for tools
+            "gemini-3.1-flash-lite-preview", // Must use gemini-2.x or 3.x for tools
             null, 
             true // useWebSearch = true
         );
