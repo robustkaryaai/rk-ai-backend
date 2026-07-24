@@ -1,6 +1,46 @@
 import express from "express";
 import ytSearch from "yt-search";
-import { search as ddgSearch, SafeSearchType } from "duck-duck-scrape";
+// Removed unstable duck-duck-scrape import
+async function robustDDGSearch(query) {
+  try {
+    const response = await fetch('https://html.duckduckgo.com/html/', {
+      method: 'POST',
+      body: `q=${encodeURIComponent(query)}`,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+      }
+    });
+    
+    const html = await response.text();
+    const results = [];
+    const resultBlocks = html.split(/class="[^"]*result__body[^"]*"/i);
+    
+    for (let i = 1; i < resultBlocks.length; i++) {
+        const block = resultBlocks[i];
+        const linkMatch = block.match(/class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+        const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i);
+        
+        if (linkMatch) {
+            let url = linkMatch[1];
+            const title = linkMatch[2].replace(/<\/?[^>]+(>|$)/g, "").trim();
+            let description = snippetMatch ? snippetMatch[1].replace(/<\/?[^>]+(>|$)/g, "").trim() : "";
+            
+            if (url.includes('uddg=')) {
+                url = decodeURIComponent(url.split('uddg=')[1].split('&')[0]);
+            } else if (!url.startsWith('http')) {
+                url = 'https:' + url;
+            }
+            results.push({ title, url, description });
+        }
+    }
+    return { results };
+  } catch (err) {
+    console.error("Robust DDG HTML Fallback failed:", err.message);
+    return { results: [] };
+  }
+}
 import { logInfo, logError } from "../../RK_AI_HOME/utils/logger.js";
 import { callGemini } from "../../RK_AI_HOME/services/gemini.js";
 import { ensureLimitFile, checkAndConsume } from "../../RK_AI_HOME/limitManager.js";
@@ -17,10 +57,7 @@ router.post("/web", async (req, res) => {
 
     logInfo(`Desktop Web Search: "${query}"`);
 
-    const searchResults = await ddgSearch(query, {
-      safeSearch: 0, // 0 = off, 1 = moderate, 2 = strict
-      locale: "en-us"
-    });
+    const searchResults = await robustDDGSearch(query);
 
     const formattedResults = searchResults.results.slice(0, 10).map(result => ({
       title: result.title,
@@ -138,9 +175,7 @@ You MUST output EXACTLY one valid JSON object and nothing else. Do not use Markd
             global.activeJobs[interaction_id].progress = (step + 1) * 20;
             logInfo(`[Deep Research] Agent searching: "${query}"`);
             try {
-              // BUG FIX: duck-duck-scrape crashes on TypeScript enum SafeSearchType.MODERATE 
-              // Passing the explicit string "MODERATE" bypasses the 'in' keyword bug in sanityCheck.
-              const searchResults = await ddgSearch(query, { safeSearch: "MODERATE" });
+              const searchResults = await robustDDGSearch(query);
               const topResults = searchResults.results.slice(0, 4).map(r => `Title: ${r.title}\nSnippet: ${r.description}\nURL: ${r.url}`).join("\n\n");
               knownFacts += `\n### Web Search Result for "${query}"\n${topResults}\n`;
             } catch (err) {
