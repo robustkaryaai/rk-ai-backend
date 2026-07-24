@@ -126,4 +126,11 @@ export class LocalMemoryVectorStore extends VectorStore {
     results.sort((a, b) => b.similarity - a.similarity);
     return results.slice(0, topK);
   }
+
+  async documentExists(fileHash, slug) {
+    // In local memory store, we can check if any chunk has the fileHash in metadata
+    // For simplicity and since memory is wiped on restart, we can just return false
+    // or actually check it. Let's do a simple check.
+    return this.memory.some(doc => doc.slug === slug && doc.metadata && doc.metadata.fileHash === fileHash);
+  }
 }
