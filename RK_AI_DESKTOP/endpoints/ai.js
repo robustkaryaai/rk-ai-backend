@@ -56,13 +56,25 @@ router.post("/generate", async (req, res) => {
         "Connection": "keep-alive"
       });
 
-      // Call our existing Gemini service
-      const result = await callGemini(prompt, [], "", 2, null, null, slug);
-      res.write(result);
+      // Call our existing Gemini service with exact tracking
+      const result = await callGemini(prompt, [], "", 2, null, null, slug, false, true); // returnMetadata = true
+      
+      const textOutput = typeof result === "object" ? result.text : result;
+      res.write(textOutput);
       res.end();
     } else {
-      const result = await callGemini(prompt, [], "", 2, null, null, slug);
-      return res.json({ ok: true, response: result });
+      const result = await callGemini(prompt, [], "", 2, null, null, slug, false, true); // returnMetadata = true
+      
+      const textOutput = typeof result === "object" ? result.text : result;
+      const metadata = typeof result === "object" ? result.metadata : null;
+      
+      // Calculate remaining quota if metadata exists
+      if (metadata && slug) {
+          const quotaCheck = await checkAndConsume(slug, 1, "tokens", 0); // tier is ignored for check
+          metadata.remaining_quota = Math.max(0, quotaCheck.allowed - (quotaCheck.used + metadata.total_tokens));
+      }
+
+      return res.json({ ok: true, response: textOutput, metadata: metadata });
     }
   } catch (err) {
     logError("Desktop AI Generate Error:", err);
@@ -186,14 +198,14 @@ router.post("/generate/code", async (req, res) => {
     logInfo(`Desktop Code Generate: "${prompt}"`);
     const { tier, limits, storageMB } = await getTierAndLimits(slug);
     
-    // NO MERCY QUOTA ENFORCEMENT
-    // Full-stack code generation is extremely expensive. Charge 100,000 tokens flat upfront.
-    const quotaCheck = await checkAndConsume(slug, tier, "tokens", 100000);
+    // Exact billing: Check if they have at least 10000 tokens to start. 
+    // Exact token billing will be tracked dynamically by callGemini per file generation.
+    const quotaCheck = await checkAndConsume(slug, tier, "tokens", 10000);
     if (!quotaCheck.ok) {
-        logError(`❌ QUOTA EXCEEDED for ${slug}: Tried to use 100000 tokens but only ${quotaCheck.allowed - quotaCheck.used} left.`);
+        logError(`❌ QUOTA EXCEEDED for ${slug}: Tried to start Code Gen but only ${quotaCheck.allowed - quotaCheck.used} tokens left.`);
         return res.status(403).json({ 
             ok: false, 
-            error: "RK AI Quota Exceeded. You do not have enough tokens remaining to build a full-stack project. Upgrade your plan or wait for the reset." 
+            error: "RK AI Quota Exceeded. You need at least 10,000 tokens remaining to start a full-stack project build. Upgrade your plan." 
         });
     }
 

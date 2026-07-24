@@ -160,12 +160,13 @@ router.post("/deep-research", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Topic and device slug required" });
     }
 
-    // Deep Research is a heavy operation, deduct tokens
-    const cost = 25000; 
+    // 1. Verify user has enough quota buffer (e.g. 5,000 tokens) to safely start
+    const minRequired = 5000;
     const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
     const subStatus = await getSubscriptionStatus(deviceSlug, req.headers["x-user-email"]);
     
-    const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", cost);
+    // checkAndConsume just verifies quota for "tokens", it doesn't deduct yet.
+    const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", minRequired);
     if (!consumeRes.ok) {
       return res.status(402).json({ ok: false, error: "Insufficient AI tokens for Deep Research" });
     }
@@ -185,23 +186,35 @@ Your objective is to thoroughly research and write a highly detailed Markdown re
 Use your native Google Search tools to gather real-time data, academic research, and industry reports.
 Do not hallucinate. Provide factual, up-to-date information.`;
 
-        // Pass useWebSearch=true and use gemini-3.1-flash-lite-preview because Gemma doesn't support tools
-        let finalReport = await callGemini(
+        // Pass useWebSearch=true and returnMetadata=true
+        let result = await callGemini(
             prompt, 
             [], 
             "", 
             2, 
             null, 
-            "gemini-3.1-flash-lite-preview", // Must use gemini-2.x or 3.x for tools
-            null, 
-            true // useWebSearch = true
+            "gemini-3.1-flash-lite-preview", 
+            deviceSlug, // Pass slug for exact token deduction in callGemini
+            true,       // useWebSearch = true
+            true        // returnMetadata = true
         );
 
-        if (typeof finalReport === "object") {
-            finalReport = finalReport.text || "Synthesis failed.";
+        let finalReport = typeof result === "object" ? result.text : result;
+        let metadata = typeof result === "object" ? result.metadata : null;
+
+        if (metadata) {
+            // Calculate remaining quota based on the upfront check
+            const allowed = consumeRes.allowed;
+            const newUsed = consumeRes.used + metadata.total_tokens;
+            metadata.remaining_quota = Math.max(0, allowed - newUsed);
         }
 
-        global.activeJobs[interaction_id] = { status: "COMPLETED", artifact: { report: finalReport }, progress: 100 };
+        global.activeJobs[interaction_id] = { 
+            status: "COMPLETED", 
+            artifact: { report: finalReport }, 
+            progress: 100,
+            metadata: metadata 
+        };
       } catch (err) {
         logError("Background Deep Research Error:", err);
         global.activeJobs[interaction_id] = { status: "FAILED", error: err.message };
@@ -212,6 +225,81 @@ Do not hallucinate. Provide factual, up-to-date information.`;
 
   } catch (err) {
     logError("Deep Research API Error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Basic in-memory cache to save costs for repeated searches
+const searchCache = new Map();
+
+// Universal Search Microservice (For Desktop Qwen & Others)
+router.post("/search-tool", async (req, res) => {
+  try {
+    const { query } = req.body;
+    const deviceSlug = req.headers["x-device-slug"];
+
+    if (!query || !deviceSlug) {
+      return res.status(400).json({ ok: false, error: "Query and device slug required" });
+    }
+
+    // Check cache
+    const cacheKey = query.toLowerCase().trim();
+    if (searchCache.has(cacheKey)) {
+      logInfo(`[Search Tool] Cache hit for "${query}"`);
+      return res.json({ ok: true, source: "cache", response: searchCache.get(cacheKey) });
+    }
+
+    logInfo(`[Search Tool] Live search for "${query}"`);
+    
+    // Verify user has buffer quota (500 tokens is enough for a basic search)
+    const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+    const subStatus = await getSubscriptionStatus(deviceSlug, req.headers["x-user-email"]);
+    const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", 500);
+    
+    if (!consumeRes.ok) {
+      return res.status(402).json({ ok: false, error: "Insufficient AI tokens for Search Tool" });
+    }
+
+    // Force gemini-2.5-flash because it is the cheapest model with Search Grounding
+    // We use returnMetadata=true for exact billing
+    const prompt = `Provide a concise, factual answer to the following query. 
+Use your Google Search grounding tool to find the most accurate real-time information.
+Query: "${query}"`;
+
+    const result = await callGemini(
+      prompt, 
+      [], 
+      "", 
+      1, 
+      null, 
+      "gemini-2.5-flash", 
+      deviceSlug, // Pass slug for exact billing inside callGemini
+      true,       // useWebSearch = true
+      true        // returnMetadata = true
+    );
+
+    const textOutput = typeof result === "object" ? result.text : result;
+    const metadata = typeof result === "object" ? result.metadata : null;
+
+    if (metadata) {
+       metadata.remaining_quota = Math.max(0, consumeRes.allowed - (consumeRes.used + metadata.total_tokens));
+    }
+
+    const payload = {
+        ok: true,
+        source: "live",
+        response: textOutput,
+        metadata: metadata
+    };
+
+    // Cache the result for 1 hour to save tokens across similar desktop requests
+    searchCache.set(cacheKey, textOutput);
+    setTimeout(() => searchCache.delete(cacheKey), 3600000);
+
+    return res.json(payload);
+
+  } catch (err) {
+    logError("Search Tool API Error:", err);
     return res.status(500).json({ ok: false, error: err.message });
   }
 });

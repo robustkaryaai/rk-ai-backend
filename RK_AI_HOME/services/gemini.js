@@ -46,7 +46,8 @@ export async function listGeminiModels(customApiKey = null) {
   }
 }
 
-export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null, slug = null, useWebSearch = false) {
+export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null, slug = null, useWebSearch = false, returnMetadata = false) {
+  const startTime = Date.now();
   try {
     const historyText = Array.isArray(chatHistory)
       ? chatHistory.join("\n")
@@ -76,18 +77,41 @@ ${userPrompt}
     });
     console.log(`💬 Gemini Response (${modelToUse}):`, response.text?.trim().substring(0, 100) + "...");
 
+    const execTime = Date.now() - startTime;
+    let tokensUsed = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
+
     // Track tokens if slug is provided
-    if (slug && response.usageMetadata && response.usageMetadata.totalTokenCount) {
-      const tokensUsed = response.usageMetadata.totalTokenCount;
-      try {
-        const { incrementAppwriteUsage } = await import("./appwriteClient.js");
-        await incrementAppwriteUsage(slug, "tokens", tokensUsed);
-      } catch (err) {
-        logError("Failed to track Gemini tokens:", err);
+    if (response.usageMetadata) {
+      tokensUsed = response.usageMetadata.totalTokenCount || 0;
+      inputTokens = response.usageMetadata.promptTokenCount || 0;
+      outputTokens = response.usageMetadata.candidatesTokenCount || 0;
+      if (slug && tokensUsed > 0) {
+        try {
+          const { incrementAppwriteUsage } = await import("./appwriteClient.js");
+          await incrementAppwriteUsage(slug, "tokens", tokensUsed);
+        } catch (err) {
+          logError("Failed to track Gemini tokens:", err);
+        }
       }
     }
 
-    return response.text ?? "";
+    const textOutput = response.text ?? "";
+    
+    if (returnMetadata) {
+      return {
+        text: textOutput,
+        metadata: {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          total_tokens: tokensUsed,
+          execution_time_ms: execTime
+        }
+      };
+    }
+
+    return textOutput;
 
   } catch (err) {
     const msg = err?.message || "";

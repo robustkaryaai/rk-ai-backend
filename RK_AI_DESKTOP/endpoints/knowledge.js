@@ -86,4 +86,69 @@ router.post("/query", async (req, res) => {
   }
 });
 
+// Hybrid RAG Cloud Escalation: Reason over locally provided chunks
+router.post("/generate-rag", async (req, res) => {
+  try {
+    const { query, chunks, slug } = req.body;
+    const deviceSlug = req.headers["x-device-slug"] || slug;
+
+    if (!query || !deviceSlug || !chunks || !Array.isArray(chunks)) {
+      return res.status(400).json({ ok: false, error: "Query, deviceSlug, and chunks array required" });
+    }
+
+    logInfo(`[Knowledge Endpoint] Cloud RAG Generation for "${query}" with ${chunks.length} chunks`);
+
+    const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+    const { checkAndConsume } = await import("../../RK_AI_HOME/limitManager.js");
+    
+    // Exact Billing Buffer Check
+    const subStatus = await getSubscriptionStatus(deviceSlug, req.headers["x-user-email"]);
+    const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", 1000);
+    if (!consumeRes.ok) {
+      return res.status(402).json({ ok: false, error: "Insufficient AI tokens for RAG generation" });
+    }
+
+    // Prepare context
+    const contextStr = chunks.map((c, i) => `--- Chunk ${i+1} ---\n${c}`).join("\n\n");
+    const systemPrompt = `You are an expert Document Analysis AI. Answer the user's query strictly using the provided context chunks.
+Do not hallucinate facts outside the context.
+If the context does not contain the answer, say "I cannot find the answer in the provided document chunks."
+Always cite your sources (e.g., 'According to Chunk 2...').`;
+
+    const finalPrompt = `Context:\n${contextStr}\n\nQuery: ${query}`;
+
+    const { callGemini } = await import("../../RK_AI_HOME/services/gemini.js");
+
+    // Strictly enforce Gemma model for RAG reasoning as requested
+    const result = await callGemini(
+      systemPrompt, 
+      [], 
+      finalPrompt, 
+      2, 
+      null, 
+      "gemma-4-26b-a4b-it", 
+      deviceSlug, 
+      false, 
+      true // returnMetadata = true
+    );
+
+    const textOutput = typeof result === "object" ? result.text : result;
+    const metadata = typeof result === "object" ? result.metadata : null;
+
+    if (metadata) {
+       metadata.remaining_quota = Math.max(0, consumeRes.allowed - (consumeRes.used + metadata.total_tokens));
+    }
+
+    return res.json({
+        ok: true,
+        answer: textOutput,
+        metadata: metadata
+    });
+
+  } catch (err) {
+    logError("[Knowledge Endpoint] RAG Generate Error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 export default router;
