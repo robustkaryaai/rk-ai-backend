@@ -41,14 +41,20 @@ export async function checkAndConsume(slug, tier, feature, amount = 1) {
       return { ok: false, used, allowed };
     }
 
-    // Increment in Appwrite
-    if (feature === "image" || feature === "video" || feature === "tokens") {
+    // Increment in Appwrite (ONLY for images and videos - tokens are calculated EXACTLY by callGemini)
+    if (feature === "image" || feature === "video") {
       await incrementAppwriteUsage(slug, feature, amount);
     }
     
-    console.log(`\n\x1b[36m[RK AI QUOTA] 📊 Consumed ${amount} ${feature} for ${slug} — Usage: ${used + amount} / ${allowed}\x1b[0m\n`);
-    logInfo(`Consumed ${amount} ${feature} for ${slug} — ${used + amount}/${allowed}`);
-    return { ok: true, used: used + amount, allowed };
+    if (feature === "tokens") {
+      console.log(`\n\x1b[36m[RK AI QUOTA] ⚖️ Verified ${amount} tokens buffer for ${slug} — Usage: ${used} / ${allowed}\x1b[0m\n`);
+      logInfo(`Verified buffer of ${amount} ${feature} for ${slug} — ${used}/${allowed}`);
+      return { ok: true, used, allowed };
+    } else {
+      console.log(`\n\x1b[36m[RK AI QUOTA] 📊 Consumed ${amount} ${feature} for ${slug} — Usage: ${used + amount} / ${allowed}\x1b[0m\n`);
+      logInfo(`Consumed ${amount} ${feature} for ${slug} — ${used + amount}/${allowed}`);
+      return { ok: true, used: used + amount, allowed };
+    }
   } catch (err) {
     logWarn(`Error checking limits for ${slug}: ${err}`);
     return { ok: false, used: 0, allowed: 0 };

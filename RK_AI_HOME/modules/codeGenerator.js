@@ -76,8 +76,8 @@ export async function generateAndZipCode(prompt, slug, interaction_id, tier = "f
 Overall Project Requirements:
 ${prompt}
 
-Project Blueprint (for context):
-${JSON.stringify(blueprint.files.map(f => f.path))}
+Project Blueprint (for architectural context):
+${JSON.stringify(blueprint.files, null, 2)}
 
 Your Task:
 Write the complete code for: ${fileObj.path}
