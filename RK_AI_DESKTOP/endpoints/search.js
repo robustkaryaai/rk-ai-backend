@@ -253,7 +253,12 @@ router.post("/search-tool", async (req, res) => {
     const cacheKey = finalQuery.toLowerCase().trim();
     if (searchCache.has(cacheKey)) {
       logInfo(`[Search Tool] Cache hit for "${finalQuery}"`);
-      return res.json({ ok: true, source: "cache", response: searchCache.get(cacheKey) });
+      return res.json({ 
+          ok: true, 
+          source: "cache", 
+          response: searchCache.get(cacheKey),
+          metadata: { total_tokens: 0, input_tokens: 0, output_tokens: 0 }
+      });
     }
 
     logInfo(`[Search Tool] Live search for "${finalQuery}"`);
