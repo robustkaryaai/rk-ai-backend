@@ -171,58 +171,49 @@ router.post("/deep-research", async (req, res) => {
       return res.status(402).json({ ok: false, error: "Insufficient AI tokens for Deep Research" });
     }
 
-    const interaction_id = "research_" + Date.now();
-    global.activeJobs = global.activeJobs || {};
-    global.activeJobs[interaction_id] = { status: "RUNNING", progress: 0 };
+    // Make it synchronous to avoid complex frontend polling state
+    try {
+      logInfo(`[Deep Research] Starting Google Search Grounding for: "${topic}"`);
 
-    // Fire and forget
-    (async () => {
-      try {
-        logInfo(`[Deep Research] Starting Google Search Grounding for: "${topic}"`);
-        global.activeJobs[interaction_id].progress = 50;
-
-        const prompt = `You are an elite Autonomous Deep Research AI.
+      const prompt = `You are an elite Autonomous Deep Research AI.
 Your objective is to thoroughly research and write a highly detailed Markdown report about: "${topic}".
 Use your native Google Search tools to gather real-time data, academic research, and industry reports.
 Do not hallucinate. Provide factual, up-to-date information.`;
 
-        // Pass useWebSearch=true and returnMetadata=true
-        let result = await callGemini(
-            prompt, 
-            [], 
-            "", 
-            2, 
-            null, 
-            "gemini-3.1-flash-lite-preview", 
-            deviceSlug, // Pass slug for exact token deduction in callGemini
-            true,       // useWebSearch = true
-            true        // returnMetadata = true
-        );
+      // Pass useWebSearch=true and returnMetadata=true
+      let result = await callGemini(
+          prompt, 
+          [], 
+          "", 
+          2, 
+          null, 
+          "gemini-3.1-flash-lite-preview", 
+          deviceSlug, // Pass slug for exact token deduction in callGemini
+          true,       // useWebSearch = true
+          true        // returnMetadata = true
+      );
 
-        let finalReport = typeof result === "object" ? result.text : result;
-        let metadata = typeof result === "object" ? result.metadata : null;
+      let finalReport = typeof result === "object" ? result.text : result;
+      let metadata = typeof result === "object" ? result.metadata : null;
 
-        if (metadata) {
-            // Calculate remaining quota based on the upfront check
-            const allowed = consumeRes.allowed;
-            const newUsed = consumeRes.used + metadata.total_tokens;
-            metadata.remaining_quota = Math.max(0, allowed - newUsed);
-        }
-
-        global.activeJobs[interaction_id] = { 
-            status: "COMPLETED", 
-            artifact: { report: finalReport }, 
-            progress: 100,
-            metadata: metadata 
-        };
-      } catch (err) {
-        logError("Background Deep Research Error:", err);
-        global.activeJobs[interaction_id] = { status: "FAILED", error: err.message };
+      if (metadata) {
+          // Calculate remaining quota based on the upfront check
+          const allowed = consumeRes.allowed;
+          const newUsed = consumeRes.used + metadata.total_tokens;
+          metadata.remaining_quota = Math.max(0, allowed - newUsed);
       }
-    })();
 
-    return res.json({ ok: true, interaction_id, message: "Deep research started using Native Gemini Grounding" });
+      return res.json({ 
+          ok: true, 
+          report: finalReport,
+          tokensConsumed: metadata ? metadata.total_tokens : 0,
+          metadata: metadata 
+      });
 
+    } catch (err) {
+      logError("Background Deep Research Error:", err);
+      return res.status(500).json({ ok: false, error: err.message });
+    }
   } catch (err) {
     logError("Deep Research API Error:", err);
     return res.status(500).json({ ok: false, error: err.message });
