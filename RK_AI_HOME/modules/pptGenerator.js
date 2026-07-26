@@ -36,7 +36,15 @@ export async function createPPT(userPrompt, slug) {
     // Keep this part the same as it relies on your internal callGemini function
     const geminiResponse = await callGemini(
       // Improved prompt for structured content to feed the new API
-      "Create a professional PPT structure. Provide the full slide content as an array of slide objects, where each object has a 'title' and 'bullets' array. Also, specify the total number of slides (n_slides) and a suggested presentation template name (theme). JSON format. RULE NOT TO BE BROKEN AT ANY COST: DONT ADD ANT SPECIAL CHARACTER ```json NO NEED TO!!!",
+      `Presentation designer. Generate structured slide content as JSON.
+
+Return ONLY this JSON (no markdown, no code fences, no special characters):
+{"n_slides":N,"theme":"<template name>","slides":[{"title":"<slide title>","bullets":["<point 1>","<point 2>"]}]}
+
+Rules:
+1. Each slide: 1 clear title, 3-5 concise bullet points.
+2. First slide: title + overview. Last slide: summary or call-to-action.
+3. Bullets are statements, not sentences. No periods.`,
       "",
       userPrompt
     );

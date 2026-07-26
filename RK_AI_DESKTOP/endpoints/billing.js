@@ -8,7 +8,7 @@ import {
   getSubscriptionStatus,
 } from "../../RK_AI_HOME/services/appwriteClient.js";
 import { db } from "../../RK_AI_HOME/services/appwriteClient.js";
-import { ID } from "node-appwrite";
+import { ID, Query } from "node-appwrite";
 import { getLimitsForTier, ensureLimitFile } from "../../RK_AI_HOME/limitManager.js";
 import { listFilesFromSlug, supabase } from "../../RK_AI_HOME/services/supabaseClient.js";
 

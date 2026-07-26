@@ -617,88 +617,45 @@ app.post("/audio/:slug", async (req, res) => {
 });
 
 // ---------------- SYSTEM PROMPT ----------------
-const SYSTEM_PROMPT = `
-You are RexyCore's intent classifier. Your job is to convert a user message into strict tool instructions.
-Output must be a pure JSON array of one or more intent objects (no prose, no markdown).
+const SYSTEM_PROMPT = `Intent classifier. Convert user messages to strict JSON tool instructions.
+Output: pure JSON array only. No prose. No markdown.
 
 INTENTS
-- image: generate images, pictures, posters, thumbnails, art.
-- video: generate videos, clips, shorts, episodes, edits, animations.
-- docx: write essays, reports, study notes as a .docx.
-- ppt: create slide decks or presentations.
-- note: short notes or explanations.
-- planner: study schedule, daily routine, checklist.
-- timetable: school/coaching timetable.
-- task: alarms, reminders, todos (use alarm intent for time-based alarms).
-- alarm: set alarms with specific times (extract time from prompt).
-- announcement: make announcements, broadcast messages, notify.
-- period_bell, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, weather, news, chat, general, shutdown/exit, music.
+image: generate images, pictures, posters, art, thumbnails
+video: generate videos, clips, animations, shorts
+docx: write essays, reports, notes as .docx
+ppt: create slide decks, presentations
+note: short notes or explanations
+planner: study schedule, daily routine, checklist
+timetable: school or coaching timetable
+task: reminders, todos
+alarm: time-based alarms — extract time
+announcement: broadcast messages, notify everyone
+assignment: student assignments
+exam_paper: question papers
+lesson_plan: teacher lesson plans
+grading_sheet: grading or marks sheet
+class_planner: class schedule for teachers
+teacher_note: teacher explanation notes
+period_bell: period bell schedule
+weather: weather queries (default: Delhi, India)
+news: news queries (India only)
+music: play, start, or stop music
+shutdown: shutdown or exit commands
+stop_alarm: stop, silence, or cancel alarms
+emergency_alarm: emergency, fire, evacuate alerts
+chat: conversation, questions, greetings, viva, oral questions
+general: unclear or ambiguous requests
 
-STRICT CLASSIFICATION RULES
-1) Generative intents (docx, ppt, note, planner, timetable, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note) MUST ONLY be triggered if the user EXPLICITLY uses a verb like "make", "generate", "create", "build", "write", "render", or "prepare". 
-   - If the user just mentions the topic (e.g., "tell me about photosynthesis"), use "chat" or "general".
-2) Image & Video intents (image, video) SHOULD be triggered if the user uses creation verbs OR explicitly mentions "video", "image", "poster", "art", "clip" in a way that implies they want to see/have one.
-   - User: "penguin dancing video" -> intent: "video".
-   - User: "cool wallpaper image" -> intent: "image".
-3) If the user says play/start music/song/background sound → intent = "music".
-3) If the user says "announce", "announcement", "broadcast", "notify everyone" → intent = "announcement".
-4) If the user says "set alarm", "wake me up at", "alarm for [time]" → intent = "alarm" and extract time.
-5) If the user mixes multiple requests, return multiple intents in a single array.
-6) If the message is truly unclear, use "general".
-7) For alarms: extract "time" parameter in format like "8:00 AM", "20:00", etc.
-8) For announcements: put the announcement message in the "prompt" parameter.
-9) For weather/news, default location to Delhi, India unless user gives a real place; for news, only India.
-10) Stop/silence/cancel alarms → intent = "stop_alarm".
-11) "emergency", "fire", "evacuate", "alert" → "emergency_alarm" or "fire_alarm".
-12) Viva/interview/yourself/oral questions → "chat".
-13) Output must be pure JSON; do not wrap in markdown; no commentary.
+RULES
+1. Generative intents (docx, ppt, note, planner, timetable, lesson_plan, exam_paper, grading_sheet, class_planner, teacher_note, assignment) require explicit creation verbs: make, generate, create, build, write, render, prepare. Without these, use chat or general.
+2. image and video: trigger on creation verbs OR direct mention ("poster", "clip", "wallpaper").
+3. alarm: extract time in format "8:00 AM" or "20:00".
+4. Multiple requests in one message → return multiple intents in the array.
+5. Unclear → general.
 
-
-OUTPUT SCHEMA
-[
-  {
-    "intent": "image" | "video" | "docx" | "ppt" | "note" | "planner" | "timetable" | "task" | "alarm" | "announcement" | "status" | "period_bell" | "assignment" | "exam_paper" | "grading_sheet" | "class_planner" | "teacher_note" | "weather" | "news" | "chat" | "general" | "shutdown/exit" | "music",
-    "parameters": {
-      "prompt": "description or command",
-      "location": "use Delhi, India if not provided for weather/news",
-      "note_type": "if notes or summary",
-      "time": "if scheduling/alarm (e.g., '8:00 AM', '20:00')",
-      "extra": "any additional context"
-    }
-  }
-]
-
-EXAMPLES
-User: "generate a video of a dancing pizza"
-[
-  { "intent": "video", "parameters": { "prompt": "dancing pizza video" } }
-]
-User: "make a poster for school science fair"
-[
-  { "intent": "image", "parameters": { "prompt": "school science fair poster" } }
-]
-User: "create slides on photosynthesis"
-[
-  { "intent": "ppt", "parameters": { "prompt": "photosynthesis slides" } }
-]
-User: "write a report on AI ethics"
-[
-  { "intent": "docx", "parameters": { "prompt": "AI ethics report" } }
-]
-User: "play lo-fi music"
-[
-  { "intent": "music", "parameters": { "prompt": "play lo-fi music" } }
-]
-User: "announce that dinner is ready"
-[
-  { "intent": "announcement", "parameters": { "prompt": "dinner is ready" } }
-]
-User: "set alarm for 8 AM"
-[
-  { "intent": "alarm", "parameters": { "prompt": "wake up", "time": "8:00 AM" } }
-]
-
-Now only output JSON following the schema and rules.`;
+SCHEMA
+[{"intent":"<intent_name>","parameters":{"prompt":"<task description>","time":"<if alarm>","location":"<if weather/news, default Delhi India>"}}]`;
 
 // ---------------- DEVICE PRESENCE TRACKING ----------------
 const deviceLastSeen = new Map();
@@ -1213,10 +1170,8 @@ app.post("/device/:slug/settings", async (req, res) => {
     if (settings.assistantName && settings.assistantName !== device.assistantName) {
       console.log(`[Settings] Assistant name changed to ${settings.assistantName}. Generating wake words...`);
       try {
-        const prompt = `The user wants to name their AI assistant "${settings.assistantName}". 
-        Generate a list of 8-10 variations of this name that a speech-to-text engine might transcribe it as, 
-        including common misspellings or similar-sounding words. 
-        Return ONLY a JSON array of strings. Example for "Jarvis": ["Jarvis", "Jarvis", "Java", "Travis", "Jarvis AI"].`;
+        const prompt = `Generate 8-10 speech-to-text transcription variants for the assistant name "${settings.assistantName}" — include phonetic matches, common mishearings, and misspellings.
+Return ONLY a JSON array of strings.`;
 
         const aiResponse = await callGemini(prompt);
         // Clean the response to ensure it's valid JSON

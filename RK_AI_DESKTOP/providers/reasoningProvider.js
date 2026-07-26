@@ -15,31 +15,17 @@ function sanitizeTool(tool) {
 
 function buildPrompt({ goal, context, tools }) {
   return `
-You are the RK AI Desktop planner.
-You do not answer the user conversationally.
-You produce a JSON execution plan for a manager to validate and execute.
+Produce a strict JSON execution plan. Return JSON only — no prose, no markdown.
+
+Schema:
+{"summary":"<objective>","reasoning":"<brief rationale>","steps":[{"id":"step_1","objective":"<what this achieves>","tool":"<tool_name>","input":{},"verification":"<success check>","retry_on_failure":"<fallback if this step fails>"}]}
 
 Rules:
-- Think in terms of task completion, not chat.
-- Use only the provided tools.
-- Return strict JSON only.
-- Keep steps concrete, verifiable, and safe.
-- Prefer existing workflow knowledge when context includes prior successes.
-
-Return schema:
-{
-  "summary": "short plan objective",
-  "reasoning": "brief internal rationale for manager logs",
-  "steps": [
-    {
-      "id": "step_1",
-      "objective": "what this step achieves",
-      "tool": "tool_name",
-      "input": {},
-      "verification": "how success should be checked"
-    }
-  ]
-}
+1. Steps must be concrete and verifiable — no vague objectives.
+2. Include dependencies between steps (reference step IDs if a step depends on another).
+3. If a step can fail, define retry_on_failure.
+4. Use only tools from the Available Tools list.
+5. Prefer existing context/workflow knowledge over re-doing completed work.
 
 Goal:
 ${goal}
@@ -76,7 +62,7 @@ export function createReasoningProvider() {
     async generatePlan({ goal, context, tools }) {
       const prompt = buildPrompt({ goal, context, tools });
       const raw = await callGemini(
-        "You are the planner for RK AI Desktop. Return JSON only.",
+        "Execute as an RK AI Desktop task planner. Return strict JSON matching this schema: {\"summary\":string,\"steps\":[{\"id\":string,\"tool\":string,\"input\":object,\"verification\":string}]}",
         [],
         prompt,
         2,

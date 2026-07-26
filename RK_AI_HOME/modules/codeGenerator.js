@@ -7,24 +7,15 @@ import { callGemini } from "../services/gemini.js";
 import { supabase } from "../services/supabaseClient.js";
 import { logInfo, logError } from "../utils/logger.js";
 
-const BLUEPRINT_PROMPT = `You are a Software Architect. Based on the user's request, design the COMPLETE file structure for the project. 
-Respond with ONLY a single valid JSON object. No markdown fences.
-Structure:
-{
-  "files": [
-    {
-      "path": "relative/path/like/this.js",
-      "description": "detailed description of what this file must contain and do"
-    }
-  ]
-}`;
+const BLUEPRINT_PROMPT = `Software Architect. Design the complete project file structure.
 
-const FILE_GENERATION_PROMPT = `You are a Senior Software Engineer. Generate the COMPLETE, robust code for the requested file.
-Respond with ONLY a single valid JSON object. No markdown fences.
-Structure:
-{
-  "content": "Full code for the file. No placeholders. No truncation."
-}`;
+Return ONLY this JSON (no markdown fences):
+{"files":[{"path":"relative/path/file.ext","description":"exact purpose and contents of this file"}]}`;
+
+const FILE_GENERATION_PROMPT = `Senior Software Engineer. Write the complete implementation for the specified file.
+
+Return ONLY this JSON (no markdown fences):
+{"content":"<complete file code — no placeholders, no truncation, no TODOs>"}`;
 
 export async function generateAndZipCode(prompt, slug, interaction_id, tier = "free") {
     // Select model based on tier
@@ -37,7 +28,7 @@ export async function generateAndZipCode(prompt, slug, interaction_id, tier = "f
     logInfo(`[Code Generator] Generating blueprint for: "${prompt}" [Tier: ${tier}]`);
     
     // 1. Generate Blueprint
-    const blueprintPrompt = `${prompt}\n\nDesign the complete project architecture.`;
+    const blueprintPrompt = `${prompt}`;
     let blueprintText = await callGemini(BLUEPRINT_PROMPT, "", blueprintPrompt, 50, null, customModel, slug);
     blueprintText = blueprintText.trim();
     const firstB = blueprintText.indexOf('{');
@@ -72,17 +63,13 @@ export async function generateAndZipCode(prompt, slug, interaction_id, tier = "f
     for (let i = 0; i < blueprint.files.length; i++) {
         const fileObj = blueprint.files[i];
         
-        const contextPrompt = `
-Overall Project Requirements:
-${prompt}
+        const contextPrompt = `Project: ${prompt}
 
-Project Blueprint (for architectural context):
+Architecture context:
 ${JSON.stringify(blueprint.files, null, 2)}
 
-Your Task:
-Write the complete code for: ${fileObj.path}
-Description: ${fileObj.description}
-`;
+Write complete code for: ${fileObj.path}
+Purpose: ${fileObj.description}`;
         
         let fileParseSuccess = false;
         let parseAttempts = 0;

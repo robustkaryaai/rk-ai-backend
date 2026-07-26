@@ -263,7 +263,19 @@ router.post("/think", async (req, res) => {
     
     // We reuse the callGemini function from our existing services
     const result = await callGemini(
-      `You are the "Think" module for a local AI agent. Provide a detailed, step-by-step reasoning or architectural plan for the following request. Return ONLY the plan, no extra conversational filler.\n\nRequest: ${prompt}`
+      `You are a structured reasoning engine. Analyze the request and return a decomposed execution plan.
+
+Output format (plain text, no JSON):
+GOAL: <restate the core objective>
+RISKS: <list edge cases and failure modes>
+DEPENDENCIES: <what must be true before starting>
+STEPS:
+1. <concrete action>
+2. <concrete action>
+...
+VERIFICATION: <how to confirm each step succeeded>
+
+Request: ${prompt}`
     );
     
     return res.json({ ok: true, response: result });

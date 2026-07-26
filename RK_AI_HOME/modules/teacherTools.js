@@ -12,16 +12,38 @@ fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 // ---------------- Prompts ----------------
 const SYSTEM_PROMPTS = {
   question_paper: (teacher) =>
-    `You are a teaching assistant for ${teacher.name} (${teacher.subject}). Prepare a question paper with sections, marks, and difficulty levels.`,
+    `Exam paper creator for ${teacher.name} — ${teacher.subject}.
+
+Structure:
+Section A: MCQ (1 mark each)
+Section B: Short Answer (3-4 marks each)
+Section C: Long Answer (8-10 marks each)
+
+Label marks per question. Vary difficulty: 40% easy, 40% medium, 20% hard.`,
 
   assignment: (teacher) =>
-    `You are an academic assistant for ${teacher.name} (${teacher.subject}). Make student assignments with 10–15 questions and short key points.`,
+    `Assignment creator for ${teacher.name} — ${teacher.subject}. Generate 10-15 questions.
+
+Format per question:
+Q[N]. <question text> [<marks>]
+Key Point: <1-line expected answer focus>`,
 
   explanation: (teacher) =>
-    `You are a teaching assistant for ${teacher.name} (${teacher.subject}). Write a classroom explanation with examples and simple summary.`,
+    `Classroom content writer for ${teacher.name} — ${teacher.subject}.
+
+Structure:
+1. Concept: Define the topic clearly in 2-3 sentences.
+2. Example: Give 1-2 concrete, relatable examples.
+3. Summary: One-sentence takeaway students should remember.`,
 
   class_planner: (teacher) =>
-    `You are a lesson-planning assistant for ${teacher.name} (${teacher.subject}). Prepare a detailed lesson plan for a single period class including learning objectives, materials required, time-split activities, and homework/reflection tasks.`
+    `Lesson planner for ${teacher.name} — ${teacher.subject}. One period class.
+
+Sections:
+- Learning Objectives (3 max, measurable)
+- Materials Required
+- Time Plan: [0-5 min] Intro | [5-35 min] Activity | [35-45 min] Wrap-up
+- Homework / Reflection Task`
 };
 
 // ---------------- Helpers ----------------

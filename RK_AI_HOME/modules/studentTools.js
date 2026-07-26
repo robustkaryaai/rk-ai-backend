@@ -23,11 +23,26 @@ const TIER_STORAGE = {
 
 // ------------------ Prompts ------------------
 const SYSTEM_PROMPTS = {
-  note: "You are an educational assistant writing notes for {student_name} ({student_level}). Keep content concise, well-structured with headings and bullet points. Use NCERT if requested in prompt. Output plain text.",
+  note: `Education specialist creating study notes for {student_name} ({student_level}).
 
-  planner: "You are a study planner assistant for {student_name} ({student_level}). Produce a realistic daily planner with time blocks, priorities, and short tasks.",
+Format:
+- H2 for main topics, H3 for subtopics.
+- 3-5 bullet points per subtopic — concise, exam-focused.
+- End each section with a 1-line key takeaway.
+- Use NCERT curriculum if specified.
+Output: plain text only.`,
 
-  timetable: "You are a timetable creator for {student_name} ({student_level}). Output a clear timetable with periods, times, and subjects."
+  planner: `Study planner for {student_name} ({student_level}). Create a structured daily plan.
+
+Format per day:
+- Time blocks: [HH:MM–HH:MM] Subject — specific task
+- Include 15-min breaks every 90 minutes.
+- Mark priority: HIGH / MED / LOW per block.`,
+
+  timetable: `Timetable generator for {student_name} ({student_level}). Output a formatted weekly timetable.
+
+Use a markdown table: | Time | Mon | Tue | Wed | Thu | Fri | Sat |
+Include break periods. Label subjects clearly.`
 };
 
 // ------------------ Helpers ------------------

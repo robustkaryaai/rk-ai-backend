@@ -84,9 +84,10 @@ ${userPrompt}
 
     // Track tokens if slug is provided
     if (response.usageMetadata) {
-      tokensUsed = response.usageMetadata.totalTokenCount || 0;
       inputTokens = response.usageMetadata.promptTokenCount || 0;
       outputTokens = response.usageMetadata.candidatesTokenCount || 0;
+      tokensUsed = response.usageMetadata.totalTokenCount || (inputTokens + outputTokens);
+      
       if (slug && tokensUsed > 0) {
         try {
           const { incrementAppwriteUsage } = await import("./appwriteClient.js");
@@ -192,13 +193,17 @@ export async function callGeminiVision(prompt, imageBuffer, mimeType, customApiK
     });
     
     // Track tokens if slug is provided
-    if (slug && response.usageMetadata && response.usageMetadata.totalTokenCount) {
-      const tokensUsed = response.usageMetadata.totalTokenCount;
-      try {
-        const { incrementAppwriteUsage } = await import("./appwriteClient.js");
-        await incrementAppwriteUsage(slug, "tokens", tokensUsed);
-      } catch (err) {
-        logError("Failed to track Gemini tokens:", err);
+    if (slug && response.usageMetadata) {
+      const inputTokens = response.usageMetadata.promptTokenCount || 0;
+      const outputTokens = response.usageMetadata.candidatesTokenCount || 0;
+      const tokensUsed = response.usageMetadata.totalTokenCount || (inputTokens + outputTokens);
+      if (tokensUsed > 0) {
+        try {
+          const { incrementAppwriteUsage } = await import("./appwriteClient.js");
+          await incrementAppwriteUsage(slug, "tokens", tokensUsed);
+        } catch (err) {
+          logError("Failed to track Gemini tokens:", err);
+        }
       }
     }
 

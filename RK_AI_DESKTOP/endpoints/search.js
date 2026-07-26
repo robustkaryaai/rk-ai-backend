@@ -175,10 +175,20 @@ router.post("/deep-research", async (req, res) => {
     try {
       logInfo(`[Deep Research] Starting Google Search Grounding for: "${topic}"`);
 
-      const prompt = `You are an elite Autonomous Deep Research AI.
-Your objective is to thoroughly research and write a highly detailed Markdown report about: "${topic}".
-Use your native Google Search tools to gather real-time data, academic research, and industry reports.
-Do not hallucinate. Provide factual, up-to-date information.`;
+      const prompt = `Autonomous research analyst. Write a comprehensive, factual Markdown report using Google Search grounding.
+
+Report structure:
+## Executive Summary
+## Key Findings
+## Supporting Data & Statistics
+## Sources
+
+Rules:
+1. Never hallucinate. Ground every claim in search results.
+2. Include specific statistics, dates, and named sources.
+3. Conclude with 3 actionable insights or open questions.
+
+Topic: "${topic}"`;
 
       // Pass useWebSearch=true and returnMetadata=true
       let result = await callGemini(
@@ -265,8 +275,8 @@ router.post("/search-tool", async (req, res) => {
 
     // Force gemini-3.1-flash-lite-preview because it is the cheapest model with Search Grounding
     // We use returnMetadata=true for exact billing
-    const prompt = `Provide a concise, factual answer to the following query. 
-Use your Google Search grounding tool to find the most accurate real-time information.
+    const prompt = `Return a direct, factual answer using Google Search. 2-3 sentences max. Cite the source inline.
+
 Query: "${finalQuery}"`;
 
     const result = await callGemini(
