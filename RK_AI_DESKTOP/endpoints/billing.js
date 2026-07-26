@@ -116,10 +116,10 @@ router.post("/upgrade", async (req, res) => {
       const targetEmail = email || slug;
       if (targetEmail) {
         dbSlug = await upgradeDatabaseUser(targetEmail, plan, duration);
-        if (dbSlug) {
+        if (dbSlug && !finalDeviceSlug) {
           finalDeviceSlug = dbSlug;
-          logInfo(`[Billing] User ${targetEmail} upgraded to ${plan}. Linked device slug: ${finalDeviceSlug}`);
         }
+        logInfo(`[Billing] User ${targetEmail} upgraded to ${plan}. Linked device slug: ${finalDeviceSlug}`);
       }
     } catch (dbErr) {
       // Not fatal — user may not have a users collection entry yet
