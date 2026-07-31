@@ -70,7 +70,8 @@ router.post("/generate", async (req, res) => {
       
       // Calculate remaining quota if metadata exists
       if (metadata && slug) {
-          const quotaCheck = await checkAndConsume(slug, 1, "tokens", 0); // tier is ignored for check
+          const { tier } = await getTierAndLimits(slug);
+          const quotaCheck = await checkAndConsume(slug, tier, "tokens", 0);
           metadata.remaining_quota = Math.max(0, quotaCheck.allowed - (quotaCheck.used + metadata.total_tokens));
       }
 

@@ -212,6 +212,13 @@ Topic: "${topic}"`;
           const newUsed = consumeRes.used + metadata.total_tokens;
           metadata.remaining_quota = Math.max(0, allowed - newUsed);
       }
+      
+      // Force token deduction fallback for Deep Research if callGemini missed it
+      if (!metadata || metadata.total_tokens === 0) {
+          const { incrementAppwriteUsage } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+          await incrementAppwriteUsage(deviceSlug, "tokens", 8000);
+          if (metadata) metadata.total_tokens = 8000;
+      }
 
       return res.json({ 
           ok: true, 
@@ -317,4 +324,70 @@ Query: "${finalQuery}"`;
   }
 });
 
+
+// Deep Research Relay Orchestrator
+router.post("/deep-research/relay", async (req, res) => {
+  try {
+    const { history, topic } = req.body;
+    const deviceSlug = req.headers["x-device-slug"];
+
+    if (!topic || !deviceSlug) {
+      return res.status(400).json({ ok: false, error: "Topic and device slug required" });
+    }
+
+    const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+    const subStatus = await getSubscriptionStatus(deviceSlug, req.headers["x-user-email"]);
+    const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", 1000);
+    if (!consumeRes.ok) {
+      return res.status(402).json({ ok: false, error: "Insufficient AI tokens" });
+    }
+
+    const systemPrompt = `You are a Deep Research orchestrator. Your goal is to write a comprehensive Markdown report on: "${topic}".
+You must output ONLY valid JSON. No markdown wrappers.
+
+If you need to search the web for more information, output:
+{"action": "search", "query": "your search query"}
+
+If you have enough information to write the final report, output:
+{"action": "final", "report": "the full markdown report..."}
+
+Rules:
+1. Search iteratively until you have enough factual data.
+2. Ground all claims in the provided search results.
+3. Your output must be exactly one JSON object.`;
+
+    // Format history for Gemini
+    const geminiHistory = (history || []).map(msg => ({
+      role: msg.role === "user" ? "user" : "model",
+      parts: [{ text: msg.content }]
+    }));
+
+    let result = await callGemini(
+      systemPrompt,
+      geminiHistory,
+      "What is your next step? Reply in JSON only.",
+      1,
+      null,
+      "gemini-3.1-flash-lite-preview",
+      deviceSlug,
+      false, // NO web search on backend
+      true   // return metadata
+    );
+
+    let rawText = typeof result === "object" ? result.text : result;
+    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    let parsed;
+    try {
+        parsed = JSON.parse(rawText);
+    } catch(e) {
+        // Fallback if model hallucinates non-JSON
+        parsed = { action: "final", report: rawText };
+    }
+
+    return res.json({ ok: true, step: parsed });
+  } catch(err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
 export default router;
