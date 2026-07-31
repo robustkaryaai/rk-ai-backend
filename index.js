@@ -80,6 +80,8 @@ async function validateDevice(req, res, next) {
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://rexycore.vercel.app";
 const hf = new HfInference(process.env.HF_TOKEN);
 const app = express();
+import expressWs from "express-ws";
+expressWs(app);
 
 // 🚀 ENHANCED CORS (With Credentials Support for Vercel)
 app.use((req, res, next) => {
@@ -2312,6 +2314,70 @@ app.get("/relay/sync/:slug", async (req, res) => {
 });
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT;
+
+// --- GEMINI LIVE VISION WS ---
+app.ws('/device/:slug/live-vision', async (ws, req) => {
+  const { slug } = req.params;
+  const { GoogleGenAI } = await import("@google/genai");
+  const aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  let session = null;
+  
+  try {
+      session = await aiClient.models.connect({ model: "gemini-3.1-flash-live-preview" });
+      
+      // Handle messages from the live API and forward to desktop
+      (async () => {
+          try {
+              for await (const msg of session) {
+                  if (msg && msg.text) {
+                      ws.send(JSON.stringify({ type: 'text', data: msg.text }));
+                  }
+                  if (msg && msg.audio) {
+                      ws.send(JSON.stringify({ type: 'audio', data: msg.audio.toString('base64') }));
+                  }
+              }
+          } catch (e) {
+              console.error("[LiveVision WS] Session error:", e);
+          }
+      })();
+  } catch (err) {
+      console.error("[LiveVision WS] Setup error:", err);
+      ws.close();
+      return;
+  }
+
+  ws.on('message', async (msg) => {
+      try {
+          const data = JSON.parse(msg);
+          // Data expected to have { prompt?: string, image?: string (base64) }
+          
+          let parts = [];
+          if (data.prompt) parts.push({ text: data.prompt });
+          if (data.image) {
+              const base64Data = data.image.replace(/^data:image\/\w+;base64,/, "");
+              parts.push({
+                  inlineData: {
+                      data: base64Data,
+                      mimeType: "image/png"
+                  }
+              });
+          }
+          if (parts.length > 0 && session) {
+              await session.send({
+                  role: "user",
+                  parts: parts
+              });
+          }
+      } catch (e) {
+          console.error("[LiveVision WS] Message parsing error:", e);
+      }
+  });
+
+  ws.on('close', () => {
+      console.log(`[LiveVision WS] Closed for ${slug}`);
+  });
+});
+
 app.listen(PORT, () => {
   logInfo(`🔥 RexyCore Backend Running on ${PORT}`);
 });
