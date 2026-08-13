@@ -325,10 +325,10 @@ Query: "${finalQuery}"`;
 });
 
 
-// Deep Research Relay Orchestrator
+// Deep Research Cloud Orchestrator (Backend Loop)
 router.post("/deep-research/relay", async (req, res) => {
   try {
-    const { history, topic } = req.body;
+    const { topic } = req.body;
     const deviceSlug = req.headers["x-device-slug"];
 
     if (!topic || !deviceSlug) {
@@ -337,55 +337,123 @@ router.post("/deep-research/relay", async (req, res) => {
 
     const { getSubscriptionStatus } = await import("../../RK_AI_HOME/services/appwriteClient.js");
     const subStatus = await getSubscriptionStatus(deviceSlug, req.headers["x-user-email"]);
-    const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", 1000);
+    // consume more tokens since this runs a loop
+    const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", 3000);
     if (!consumeRes.ok) {
       return res.status(402).json({ ok: false, error: "Insufficient AI tokens" });
     }
 
-    const systemPrompt = `You are a Deep Research orchestrator. Your goal is to write a comprehensive Markdown report on: "${topic}".
-You must output ONLY valid JSON. No markdown wrappers.
+    const fs = await import("fs");
+    const path = await import("path");
+    const os = await import("os");
+    
+    // Create temporary cloud workspace
+    const sessionId = Math.random().toString(36).substring(7);
+    const workspaceDir = path.join(os.tmpdir(), `rk_deep_research_${sessionId}`);
+    fs.mkdirSync(workspaceDir, { recursive: true });
 
-If you need to search the web for more information, output:
-{"action": "search", "query": "your search query"}
+    const systemPrompt = `You are an autonomous Deep Research agent running on the cloud.
+Your goal is to research: "${topic}".
+You have a temporary workspace.
+You must output ONLY valid JSON. 
+Your JSON must contain a "tools" array. You can run multiple tools at once.
 
-If you have enough information to write the final report, output:
-{"action": "final", "report": "the full markdown report..."}
+Available tools:
+1. {"tool": "write_file", "arguments": {"filename": "task.md", "content": "..."}} - Create or overwrite files. MUST use this first to create task.md (your plan). Store context in report.md.
+2. {"tool": "web_search", "arguments": {"query": "..."}} - Search the web.
+3. {"tool": "task_done", "arguments": {"task": "what was done", "summary": "short summary to remember"}} - Marks a task done and saves a brief summary to your context.
+4. {"tool": "get_all_context", "arguments": {}} - Reads and returns the contents of all files in your temporary workspace.
+5. {"tool": "complete", "arguments": {"report": "Full comprehensive markdown report"}} - Ends research and returns the final report.
 
 Rules:
-1. Search iteratively until you have enough factual data.
-2. Ground all claims in the provided search results.
-3. Your output must be exactly one JSON object.`;
+1. ALWAYS start by creating a task.md file.
+2. Search iteratively. Use task_done to keep context focused.
+3. Use get_all_context if you need to read back what you wrote in report.md or task.md.
+4. When finished, use the 'complete' tool.`;
 
-    // Format history for Gemini
-    const geminiHistory = (history || []).map(msg => ({
-      role: msg.role === "user" ? "user" : "model",
-      parts: [{ text: msg.content }]
-    }));
-
-    let result = await callGemini(
-      systemPrompt,
-      geminiHistory,
-      "What is your next step? Reply in JSON only.",
-      1,
-      null,
-      "gemini-3.1-flash-lite-preview",
-      deviceSlug,
-      false, // NO web search on backend
-      true   // return metadata
-    );
-
-    let rawText = typeof result === "object" ? result.text : result;
-    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+    let history = [];
+    let finalReport = "Cloud Deep Research failed to produce a final report.";
+    let loopCount = 0;
     
-    let parsed;
-    try {
-        parsed = JSON.parse(rawText);
-    } catch(e) {
-        // Fallback if model hallucinates non-JSON
-        parsed = { action: "final", report: rawText };
+    while(loopCount < 8) {
+      loopCount++;
+      let result = await callGemini(
+        systemPrompt,
+        history,
+        "What is your next step? Reply in JSON only.",
+        1,
+        null,
+        "gemini-3.1-flash-lite-preview",
+        deviceSlug,
+        false, 
+        true
+      );
+      
+      let rawText = typeof result === "object" ? result.text : result;
+      rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+      let startIdx = rawText.indexOf('{');
+      let endIdx = rawText.lastIndexOf('}');
+      if (startIdx !== -1 && endIdx !== -1) {
+          rawText = rawText.substring(startIdx, endIdx + 1);
+      }
+      
+      let parsed;
+      try {
+          parsed = JSON.parse(rawText);
+      } catch(e) {
+          history.push({role: "model", parts: [{text: rawText}]});
+          history.push({role: "user", parts: [{text: "JSON Parse error. Output valid JSON only."}]});
+          continue;
+      }
+      
+      let tools = parsed.tools || [];
+      if (!Array.isArray(tools)) tools = [parsed];
+      
+      history.push({role: "model", parts: [{text: rawText}]});
+      let stepResults = [];
+      let isComplete = false;
+      
+      for (let t of tools) {
+         let tName = t.tool || t.action;
+         let args = t.arguments || t || {};
+         
+         if (tName === "write_file") {
+            let filename = args.filename || args.path || "unnamed.md";
+            fs.writeFileSync(path.join(workspaceDir, path.basename(filename)), args.content || "");
+            stepResults.push(`[write_file] Successfully wrote to ${filename}`);
+         } else if (tName === "web_search" || tName === "search") {
+            let q = args.query;
+            let searchRes = await callGemini(
+                `Return a factual summary with citations for: "${q}"`,
+                [], "", 1, null, "gemini-3.1-flash-lite-preview", deviceSlug, true, true
+            );
+            stepResults.push(`[web_search: ${q}]\n${typeof searchRes === 'object' ? searchRes.text : searchRes}`);
+         } else if (tName === "task_done") {
+            stepResults.push(`[task_done] Marked '${args.task}' complete. Summary saved: ${args.summary}`);
+         } else if (tName === "get_all_context") {
+            let files = fs.readdirSync(workspaceDir);
+            let ctx = "Workspace files:\\n";
+            for (let f of files) {
+               ctx += `\\n--- ${f} ---\\n${fs.readFileSync(path.join(workspaceDir, f), 'utf-8')}\\n`;
+            }
+            stepResults.push(`[get_all_context]\\n${ctx}`);
+         } else if (tName === "complete" || tName === "final") {
+            finalReport = args.report || "Done";
+            isComplete = true;
+            break;
+         } else {
+            stepResults.push(`[${tName}] Unknown tool.`);
+         }
+      }
+      
+      if (isComplete) break;
+      history.push({role: "user", parts: [{text: `Tool Execution Results:\\n${stepResults.join("\\n\\n")}`}]});
     }
-
-    return res.json({ ok: true, step: parsed });
+    
+    // Cleanup temporary cloud workspace
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    
+    return res.json({ ok: true, step: { action: "final", report: finalReport } });
   } catch(err) {
     return res.status(500).json({ ok: false, error: err.message });
   }
