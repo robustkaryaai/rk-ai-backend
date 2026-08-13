@@ -366,21 +366,33 @@ Available tools:
 5. {"tool": "complete", "arguments": {"report": "Full comprehensive markdown report"}} - Ends research and returns the final report.
 
 Rules:
-1. ALWAYS start by creating a task.md file.
-2. Search iteratively. Use task_done to keep context focused.
-3. Use get_all_context if you need to read back what you wrote in report.md or task.md.
-4. When finished, use the 'complete' tool.`;
+1. Start by creating a task.md file ONLY IF it doesn't already exist.
+2. DO NOT repeat the exact same tool call (e.g. writing the exact same task.md over and over). Move on to web_search!
+3. Search iteratively. Use task_done to keep context focused.
+4. Use get_all_context if you need to read back what you wrote in report.md or task.md.
+5. When finished, use the 'complete' tool.`;
 
     let history = [];
     let finalReport = "Cloud Deep Research failed to produce a final report.";
     let loopCount = 0;
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
     
     while(loopCount < 8) {
       loopCount++;
+      
+      // Delay to respect Gemini RPM rate limits
+      if (loopCount > 1) {
+          await sleep(4000); 
+      }
+      
+      // Inject current files so the model knows what it has already done
+      let currentFiles = fs.readdirSync(workspaceDir);
+      let nextStepPrompt = `Current workspace files: [${currentFiles.join(", ") || "None"}]. \nWhat is your next step? Reply in JSON only.`;
+      
       let result = await callGemini(
         systemPrompt,
         history,
-        "What is your next step? Reply in JSON only.",
+        nextStepPrompt,
         1,
         null,
         "gemini-3.1-flash-lite-preview",
