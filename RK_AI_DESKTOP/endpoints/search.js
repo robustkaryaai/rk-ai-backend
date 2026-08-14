@@ -326,6 +326,11 @@ Query: "${finalQuery}"`;
 
 
 // Deep Research Cloud Orchestrator (Backend Loop)
+if (typeof global.activeDeepResearchJobs === 'undefined') {
+  global.activeDeepResearchJobs = 0;
+  global.deepResearchWaitlist = [];
+}
+
 router.post("/deep-research/relay", async (req, res) => {
   try {
     const { topic, sessionId: inSessionId, history: inHistory, stepResults: inStepResults } = req.body;
@@ -341,6 +346,19 @@ router.post("/deep-research/relay", async (req, res) => {
     const consumeRes = await checkAndConsume(deviceSlug, subStatus.tier, "tokens", 3000);
     if (!consumeRes.ok) {
       return res.status(402).json({ ok: false, error: "Insufficient AI tokens" });
+    }
+
+    // Waitlist queue logic for Render concurrency limits
+    if (!inSessionId && global.activeDeepResearchJobs >= 5) {
+      console.log(`[Deep Research] Concurrency limit (5) reached. Queuing request for ${deviceSlug}...`);
+      await new Promise(resolve => {
+        global.deepResearchWaitlist.push(resolve);
+      });
+    }
+    
+    // Only increment active jobs for fresh requests, not continuations
+    if (!inSessionId) {
+      global.activeDeepResearchJobs++;
     }
 
     const fs = await import("fs");
@@ -391,9 +409,9 @@ Rules:
     while(loopCount < 15) {
       loopCount++;
       
-      // Delay to respect Gemini RPM rate limits (wait 2 minutes per user request)
+      // Delay to respect Gemini RPM rate limits (wait 1 minute per user request)
       if (loopCount > 1) {
-          await sleep(120000); 
+          await sleep(60000); 
       }
       
       // Inject current files so the model knows what it has already done
@@ -498,6 +516,16 @@ Rules:
          ctx += `\\n--- ${f} ---\\n${fs.readFileSync(path.join(workspaceDir, f), 'utf-8')}\\n`;
       }
       finalReport = ctx;
+    }
+
+    if (isComplete || loopCount >= 15) {
+      if (global.activeDeepResearchJobs > 0) {
+        global.activeDeepResearchJobs--;
+        if (global.deepResearchWaitlist.length > 0) {
+          const nextInQueue = global.deepResearchWaitlist.shift();
+          nextInQueue();
+        }
+      }
     }
     
     // Cleanup temporary cloud workspace
