@@ -358,7 +358,8 @@ router.post("/deep-research/relay", async (req, res) => {
 Your goal is to research: "${topic}".
 You have a temporary workspace.
 You must output ONLY valid JSON. 
-Your JSON must contain a "tools" array. You can run multiple tools at once.
+Your JSON must contain a "reasoning" string (explaining your thought process) and a "tools" array. You can run multiple tools at once.
+Example: {"reasoning": "I need to search for X.", "tools": [{"tool": "web_search", "arguments": {"query": "X"}}]}
 
 Available tools:
 1. {"tool": "write_file", "arguments": {"filename": "task.md", "content": "..."}} - Create or overwrite files. MUST use this first to create task.md (your plan). Store context in report.md.
@@ -401,7 +402,7 @@ Rules:
         nextStepPrompt,
         1,
         null,
-        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-preview",
         deviceSlug,
         false, 
         true
