@@ -400,10 +400,9 @@ Rules:
       
       // Inject the direct results of the previous client action so the model doesn't ignore history
       let stepText = "";
-      if (inStepResults && inStepResults.length > 0) {
+      // Only inject once per API call
+      if (loopCount === 1 && inStepResults && inStepResults.length > 0) {
           stepText = `[CRITICAL UPDATE FROM LAST ACTION]:\n${inStepResults.join("\n\n")}\n\n`;
-          // Clear it so we don't inject it every subsequent loop iteration in this request
-          inStepResults = []; 
       }
       
       let nextStepPrompt = `${stepText}Current workspace files: [${currentFiles.join(", ") || "None"}]. \nWhat is your next step? Reply in JSON only.`;
