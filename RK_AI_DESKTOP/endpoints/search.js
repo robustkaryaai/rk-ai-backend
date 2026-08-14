@@ -350,7 +350,10 @@ router.post("/deep-research/relay", async (req, res) => {
     // Session and workspace management
     const sessionId = inSessionId || Math.random().toString(36).substring(7);
     const workspaceDir = path.join(os.tmpdir(), `rk_deep_research_${sessionId}`);
-    if (!inSessionId) {
+    
+    // Always ensure the directory exists, even if we are resuming a session
+    // This prevents ENOENT crashes if the temp directory was cleaned up
+    if (!fs.existsSync(workspaceDir)) {
         fs.mkdirSync(workspaceDir, { recursive: true });
     }
 
@@ -387,14 +390,23 @@ Rules:
     while(loopCount < 15) {
       loopCount++;
       
-      // Delay to respect Gemini RPM rate limits
+      // Delay to respect Gemini RPM rate limits (wait 2 seconds per user request)
       if (loopCount > 1) {
-          await sleep(4000); 
+          await sleep(2000); 
       }
       
       // Inject current files so the model knows what it has already done
       let currentFiles = fs.readdirSync(workspaceDir);
-      let nextStepPrompt = `Current workspace files: [${currentFiles.join(", ") || "None"}]. \nWhat is your next step? Reply in JSON only.`;
+      
+      // Inject the direct results of the previous client action so the model doesn't ignore history
+      let stepText = "";
+      if (inStepResults && inStepResults.length > 0) {
+          stepText = `[CRITICAL UPDATE FROM LAST ACTION]:\n${inStepResults.join("\n\n")}\n\n`;
+          // Clear it so we don't inject it every subsequent loop iteration in this request
+          inStepResults = []; 
+      }
+      
+      let nextStepPrompt = `${stepText}Current workspace files: [${currentFiles.join(", ") || "None"}]. \nWhat is your next step? Reply in JSON only.`;
       
       let result = await callGemini(
         systemPrompt,
