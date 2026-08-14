@@ -13,6 +13,7 @@ import { handleIntents } from "./RK_AI_HOME/taskHandler.js";
 import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./RK_AI_HOME/services/supabaseClient.js";
 import desktopRouter from "./RK_AI_DESKTOP/index.js";
 import billingRouter from "./RK_AI_DESKTOP/endpoints/billing.js";
+import { startPulseWorker } from "./RK_AI_HOME/pulseWorker.js";
 
 dotenv.config();
 
@@ -2380,4 +2381,5 @@ app.ws('/device/:slug/live-vision', async (ws, req) => {
 
 app.listen(PORT, () => {
   logInfo(`🔥 RexyCore Backend Running on ${PORT}`);
+  startPulseWorker();
 });
