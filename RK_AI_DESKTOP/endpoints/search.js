@@ -358,8 +358,8 @@ router.post("/deep-research/relay", async (req, res) => {
 Your goal is to research: "${topic}".
 You have a temporary workspace.
 You must output ONLY valid JSON. 
-Your JSON must contain a "reasoning" string (explaining your thought process) and a "tools" array. You can run multiple tools at once.
-Example: {"reasoning": "I need to search for X.", "tools": [{"tool": "web_search", "arguments": {"query": "X"}}]}
+Your JSON must contain a "scratchpad" string (to store your notes, findings, and next steps), a "reasoning" string (explaining your thought process), and a "tools" array. You can run multiple tools at once.
+Example: {"scratchpad": "Found X, need to search Y next.", "reasoning": "I need to search for Y.", "tools": [{"tool": "web_search", "arguments": {"query": "Y"}}]}
 
 Available tools:
 1. {"tool": "write_file", "arguments": {"filename": "task.md", "content": "..."}} - Create or overwrite files. MUST use this first to create task.md (your plan). Store context in report.md.
@@ -470,7 +470,9 @@ Rules:
               client_tools: toolsToRunOnClient,
               stepResults,
               sessionId,
-              history
+              history,
+              scratchpad: parsed.scratchpad || "",
+              reasoning: parsed.reasoning || ""
           });
       }
       
