@@ -385,6 +385,7 @@ Rules:
     
     let finalReport = "Cloud Deep Research failed to produce a final report.";
     let loopCount = 0;
+    let isComplete = false;
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     
     while(loopCount < 15) {
@@ -441,7 +442,6 @@ Rules:
       
       history.push({role: "model", parts: [{text: rawText}]});
       let stepResults = [];
-      let isComplete = false;
       
       for (let t of tools) {
          let tName = t.tool || t.action;
