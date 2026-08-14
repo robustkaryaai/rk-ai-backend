@@ -402,7 +402,7 @@ Rules:
         nextStepPrompt,
         1,
         null,
-        null,
+        "gemini-3.7-flash",
         deviceSlug,
         false, 
         true
