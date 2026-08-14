@@ -377,7 +377,7 @@ Rules:
     let loopCount = 0;
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     
-    while(loopCount < 8) {
+    while(loopCount < 15) {
       loopCount++;
       
       // Delay to respect Gemini RPM rate limits
@@ -460,6 +460,15 @@ Rules:
       
       if (isComplete) break;
       history.push({role: "user", parts: [{text: `Tool Execution Results:\\n${stepResults.join("\\n\\n")}`}]});
+    }
+    
+    if (!isComplete && fs.existsSync(workspaceDir)) {
+      let files = fs.readdirSync(workspaceDir);
+      let ctx = "Cloud Deep Research timed out. Gathered context:\\n";
+      for (let f of files) {
+         ctx += `\\n--- ${f} ---\\n${fs.readFileSync(path.join(workspaceDir, f), 'utf-8')}\\n`;
+      }
+      finalReport = ctx;
     }
     
     // Cleanup temporary cloud workspace
