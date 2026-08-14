@@ -390,9 +390,9 @@ Rules:
     while(loopCount < 15) {
       loopCount++;
       
-      // Delay to respect Gemini RPM rate limits (wait 2 seconds per user request)
+      // Delay to respect Gemini RPM rate limits (wait 2 minutes per user request)
       if (loopCount > 1) {
-          await sleep(2000); 
+          await sleep(120000); 
       }
       
       // Inject current files so the model knows what it has already done
