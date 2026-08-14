@@ -41,8 +41,7 @@ export async function listGeminiModels(customApiKey = null) {
     logError("❌ Failed to list Gemini models:", err.message);
     return [
       { name: "gemma-4-26b-a4b-it", displayName: "Gemma 4 26B (Pro Default)" },
-      { name: "gemini-3.7-flash", displayName: "Gemini 3.7 Flash (Latest Elite Workhorse)" },
-      { name: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite (Quantum Fast)" }
+      { name: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite (Elite/Quantum Default)" }
     ];
   }
 }
