@@ -328,7 +328,7 @@ Query: "${finalQuery}"`;
 // Deep Research Cloud Orchestrator (Backend Loop)
 router.post("/deep-research/relay", async (req, res) => {
   try {
-    const { topic } = req.body;
+    const { topic, sessionId: inSessionId, history: inHistory, stepResults: inStepResults } = req.body;
     const deviceSlug = req.headers["x-device-slug"];
 
     if (!topic || !deviceSlug) {
@@ -347,10 +347,12 @@ router.post("/deep-research/relay", async (req, res) => {
     const path = await import("path");
     const os = await import("os");
     
-    // Create temporary cloud workspace
-    const sessionId = Math.random().toString(36).substring(7);
+    // Session and workspace management
+    const sessionId = inSessionId || Math.random().toString(36).substring(7);
     const workspaceDir = path.join(os.tmpdir(), `rk_deep_research_${sessionId}`);
-    fs.mkdirSync(workspaceDir, { recursive: true });
+    if (!inSessionId) {
+        fs.mkdirSync(workspaceDir, { recursive: true });
+    }
 
     const systemPrompt = `You are an autonomous Deep Research agent running on the cloud.
 Your goal is to research: "${topic}".
@@ -372,7 +374,11 @@ Rules:
 4. Use get_all_context if you need to read back what you wrote in report.md or task.md.
 5. When finished, use the 'complete' tool.`;
 
-    let history = [];
+    let history = inHistory || [];
+    if (inStepResults && inStepResults.length > 0) {
+        history.push({role: "user", parts: [{text: `Tool Execution Results:\\n${inStepResults.join("\\n\\n")}`}]});
+    }
+    
     let finalReport = "Cloud Deep Research failed to produce a final report.";
     let loopCount = 0;
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -434,12 +440,8 @@ Rules:
             fs.writeFileSync(path.join(workspaceDir, path.basename(filename)), args.content || "");
             stepResults.push(`[write_file] Successfully wrote to ${filename}`);
          } else if (tName === "web_search" || tName === "search") {
-            let q = args.query;
-            let searchRes = await callGemini(
-                `Return a factual summary with citations for: "${q}"`,
-                [], "", 1, null, "gemini-3.1-flash-lite-preview", deviceSlug, true, true
-            );
-            stepResults.push(`[web_search: ${q}]\n${typeof searchRes === 'object' ? searchRes.text : searchRes}`);
+            // We DO NOT execute this on the backend anymore.
+            // The client will handle it. We just collect it here.
          } else if (tName === "task_done") {
             stepResults.push(`[task_done] Marked '${args.task}' complete. Summary saved: ${args.summary}`);
          } else if (tName === "get_all_context") {
@@ -456,6 +458,19 @@ Rules:
          } else {
             stepResults.push(`[${tName}] Unknown tool.`);
          }
+      }
+      
+      let toolsToRunOnClient = tools.filter(t => (t.tool || t.action) === "web_search" || (t.tool || t.action) === "search");
+      if (toolsToRunOnClient.length > 0) {
+          // Send back to client to execute web_search
+          return res.json({
+              ok: true,
+              need_client_tool: "web_search",
+              client_tools: toolsToRunOnClient,
+              stepResults,
+              sessionId,
+              history
+          });
       }
       
       if (isComplete) break;
