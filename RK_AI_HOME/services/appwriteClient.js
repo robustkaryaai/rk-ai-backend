@@ -3,8 +3,14 @@ import dotenv from "dotenv";
 
 dotenv.config(); // ✅ THIS IS CRITICAL
 
+let endpoint = process.env.APPWRITE_ENDPOINT || "https://cloud.appwrite.io/v1";
+// Fix TLS Fastly certificate errors if the user configured a regional endpoint
+if (endpoint.includes("fra.cloud.appwrite.io")) {
+    endpoint = endpoint.replace("fra.cloud.appwrite.io", "cloud.appwrite.io");
+}
+
 const client = new Client()
-  .setEndpoint(process.env.APPWRITE_ENDPOINT)     // ✅ MUST be full URL
+  .setEndpoint(endpoint)     // ✅ MUST be full URL
   .setProject(process.env.APPWRITE_PROJECT_ID)    // ✅ Project ID
   .setKey(process.env.APPWRITE_API_KEY);          // ✅ THIS WAS MISSING
 
