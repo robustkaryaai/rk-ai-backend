@@ -568,7 +568,7 @@ app.use(rateLimitMiddleware);
 
 // ---------------- AUDIO TRANSCRIPTION & HEALTH ----------------
 // GET: Quick status check and metadata
-app.get("/audio/:slug", (req, res) => {
+app.get("/audio/:slug", async (req, res) => {
   const slug = normalizeSlug(req.params.slug);
     if (req.body.source === "rk-ai-phone") {
       const { intent, parameters, source_slug } = req.body;
@@ -800,7 +800,7 @@ app.get("/device/:slug/status", async (req, res) => {
 });
 
 // 🚀 NEW: Explicit state reporting from hardware
-app.post("/device/:slug/state", (req, res) => {
+app.post("/device/:slug/state", async (req, res) => {
   const slug = normalizeSlug(req.params.slug);
     if (req.body.source === "rk-ai-phone") {
       const { intent, parameters, source_slug } = req.body;
@@ -829,7 +829,7 @@ app.post("/device/:slug/state", (req, res) => {
 });
 
 // ---------------- STT LOG STREAM ----------------
-app.post("/device/:slug/stt-log", (req, res) => {
+app.post("/device/:slug/stt-log", async (req, res) => {
   const slug = normalizeSlug(req.params.slug);
     if (req.body.source === "rk-ai-phone") {
       const { intent, parameters, source_slug } = req.body;
@@ -861,7 +861,7 @@ app.post("/device/:slug/stt-log", (req, res) => {
   return res.json({ ok: true });
 });
 
-app.get("/device/:slug/stt-log", (req, res) => {
+app.get("/device/:slug/stt-log", async (req, res) => {
   const slug = normalizeSlug(req.params.slug);
     if (req.body.source === "rk-ai-phone") {
       const { intent, parameters, source_slug } = req.body;
@@ -2712,7 +2712,7 @@ const desktopConnections = new Map(); // slug -> response object
 
 app.get("/device/:slug/desktop-relay/status", (req, res) => { const isConnected = desktopConnections.has(normalizeSlug(req.params.slug)); return res.json({ connected: isConnected }); });
 
-app.get("/device/:slug/desktop-relay", (req, res) => {
+app.get("/device/:slug/desktop-relay", async (req, res) => {
   const slug = normalizeSlug(req.params.slug);
     if (req.body.source === "rk-ai-phone") {
       const { intent, parameters, source_slug } = req.body;
