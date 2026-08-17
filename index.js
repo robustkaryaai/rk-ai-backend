@@ -2811,7 +2811,7 @@ app.get("/relay/sync/:slug", async (req, res) => {
   }
 });
 // ---------------- START SERVER ----------------
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 10000;
 
 // --- GEMINI LIVE VISION WS ---
 app.ws('/device/:slug/live-vision', async (ws, req) => {
@@ -2876,7 +2876,7 @@ app.ws('/device/:slug/live-vision', async (ws, req) => {
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   logInfo(`🔥 RexyCore Backend Running on ${PORT}`);
   startPulseWorker();
 });
