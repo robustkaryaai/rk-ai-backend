@@ -456,6 +456,21 @@ app.get("/web/auth/google/start", (req, res) => {
 app.get("/subscription/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const status = await getSubscriptionStatus(slug);
     return res.json({ ok: true, ...status });
   } catch (err) {
@@ -555,6 +570,21 @@ app.use(rateLimitMiddleware);
 // GET: Quick status check and metadata
 app.get("/audio/:slug", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
   const lastSeen = deviceLastSeen.get(slug);
   const now = Date.now();
   const isOnline = lastSeen && (now - lastSeen < 180000);
@@ -573,6 +603,21 @@ app.get("/audio/:slug", (req, res) => {
 app.post("/audio/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const { audio_b64 } = req.body;
 
     // Shoom Update: Mark device as seen immediately
@@ -757,6 +802,21 @@ app.get("/device/:slug/status", async (req, res) => {
 // 🚀 NEW: Explicit state reporting from hardware
 app.post("/device/:slug/state", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
   const { state } = req.body; // e.g. "thinking", "speaking", "playing", "idle"
 
   if (!state) return res.status(400).json({ error: "state required" });
@@ -771,6 +831,21 @@ app.post("/device/:slug/state", (req, res) => {
 // ---------------- STT LOG STREAM ----------------
 app.post("/device/:slug/stt-log", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "text required" });
 
@@ -788,6 +863,21 @@ app.post("/device/:slug/stt-log", (req, res) => {
 
 app.get("/device/:slug/stt-log", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
   const logs = deviceSTTLogs.get(slug) || [];
   return res.json({ ok: true, logs });
 });
@@ -1002,6 +1092,21 @@ async function handleTextRequest(req, res, slug, text, device) {
 app.post("/text/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const text = String(req.body?.text || "").trim();
 
     if (!slug || !text) {
@@ -1028,6 +1133,21 @@ app.post("/text/:slug", async (req, res) => {
 app.get("/chat/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
 
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "invalid_slug" });
@@ -1044,6 +1164,21 @@ app.get("/chat/:slug", async (req, res) => {
 app.delete("/chat/:slug/:index", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const index = parseInt(req.params.index, 10);
 
     if (isNaN(index)) return res.status(400).json({ error: "invalid_index" });
@@ -1063,6 +1198,21 @@ app.delete("/chat/:slug/:index", async (req, res) => {
 app.get("/limits/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "invalid_slug" });
 
@@ -1128,6 +1278,21 @@ function parseWakeWordsDocument(rawValue) {
 app.post("/device/:slug/settings", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const settings = req.body;
 
     console.log(`[Settings] Updating settings for ${slug}:`, settings);
@@ -1219,6 +1384,21 @@ Return ONLY a JSON array of strings.`;
 app.get("/device/check/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
 
     if (!/^\d{9}$/.test(slug)) {
       return res.status(400).json({ error: "invalid_slug_format" });
@@ -1236,6 +1416,21 @@ app.get("/device/check/:slug", async (req, res) => {
 app.get("/device/:slug/profile", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "Device not found" });
     return res.json({ email: device.email || "", username: device.name || "" });
@@ -1248,6 +1443,21 @@ app.get("/device/:slug/profile", async (req, res) => {
 app.get("/device/:slug/alarms", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     console.log(`[Alarms Fetch] Fetching alarms for device slug: ${slug}`);
 
     const device = await getUserPlanBySlug(slug);
@@ -1292,6 +1502,21 @@ app.get("/device/:slug/alarms", async (req, res) => {
 app.get("/device/:slug/schedules", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
 
@@ -1317,6 +1542,21 @@ app.get("/device/:slug/schedules", async (req, res) => {
 app.post("/device/:slug/sync_alarms", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const { alarms } = req.body;
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
@@ -1352,6 +1592,21 @@ app.post("/device/:slug/sync_alarms", async (req, res) => {
 app.post("/device/:slug/sync_schedules", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const { schedules } = req.body;
     const device = await getUserPlanBySlug(slug);
     if (!device) return res.status(404).json({ error: "device_not_found" });
@@ -1388,6 +1643,21 @@ app.post("/device/:slug/sync_schedules", async (req, res) => {
 app.get("/device/:slug/files", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const files = await listFilesFromSlug(slug);
     const filtered = files.filter(f => !['chat.txt', 'limit.txt', 'welcome.txt'].includes(f.name.toLowerCase()));
 
@@ -1406,6 +1676,21 @@ app.get("/device/:slug/files", async (req, res) => {
 app.get("/device/:slug/file/:filename", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const filename = req.params.filename;
     const buffer = await downloadFileFromSlug(slug, filename);
 
@@ -1429,6 +1714,21 @@ app.get("/device/:slug/file/:filename", async (req, res) => {
 app.delete("/device/:slug/file/:filename", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const filename = req.params.filename;
     const success = await deleteFileFromSlug(slug, filename);
 
@@ -1443,6 +1743,21 @@ app.delete("/device/:slug/file/:filename", async (req, res) => {
 app.post("/device/:slug/update-status", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const { busyState, downloadProgress } = req.body;
 
     if (busyState) deviceBusyState.set(slug, busyState);
@@ -1457,6 +1772,21 @@ app.post("/device/:slug/update-status", async (req, res) => {
 app.post("/device/:slug/music/recommend", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const seedText = String(req.body?.current_title || req.body?.current_query || "").trim();
 
     if (!seedText) {
@@ -1483,12 +1813,27 @@ app.post("/device/:slug/music/recommend", async (req, res) => {
 app.post("/device/ensure/:slug", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
 
     if (!/^\d{9}$/.test(slug)) {
       return res.status(400).json({ error: "invalid_slug_format" });
     }
 
-    const result = await ensureDeviceBySlug(slug);
+    const result = await ensureDeviceBySlug(slug, req.body.deviceType || "home");
 
     return res.json({
       ok: true,
@@ -1508,6 +1853,21 @@ app.post("/device/ensure/:slug", async (req, res) => {
 app.get("/device/:slug/maintenance", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     console.log(`[Maintenance] Maintenance started for device: ${slug}`);
 
     // 1. Update last seen timestamp
@@ -1553,6 +1913,21 @@ app.get("/device/:slug/maintenance", async (req, res) => {
 app.post("/device/:slug/verify", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const { password } = req.body;
 
     if (!/^\d{9}$/.test(slug)) {
@@ -1597,6 +1972,21 @@ app.post("/device/:slug/verify", async (req, res) => {
 app.post("/device/:slug/mute", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const { muted } = req.body;
 
     if (!/^\d{9}$/.test(slug)) {
@@ -1642,6 +2032,21 @@ app.post("/device/:slug/mute", async (req, res) => {
 app.post("/device/:slug/memory", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const { enabled } = req.body;
 
     if (!/^\d{9}$/.test(slug)) {
@@ -1689,6 +2094,21 @@ app.post("/device/:slug/memory", async (req, res) => {
 app.post("/device/:slug/command", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const { command_type, payload } = req.body;
 
     console.log(`[Command Uplink] Received ${command_type} for slug: ${slug}`);
@@ -1826,6 +2246,21 @@ app.post("/device/:slug/command", async (req, res) => {
 app.get("/device/:slug/commands/pending", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
 
     // Record the fact that this device natively polled the server right now
     deviceLastSeen.set(slug, Date.now());
@@ -1860,6 +2295,21 @@ app.get("/device/:slug/commands/pending", async (req, res) => {
 app.post("/device/:slug/commands/:command_id/complete", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const command_id = req.params.command_id;
     const { result, success } = req.body;
 
@@ -2207,6 +2657,21 @@ app.get("/waitlist/stats", (req, res) => {
 app.post("/device/:slug/trial", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
     const device = await getUserPlanBySlug(slug);
 
     // We now allow "More Trials" - let's say up to 3 trials or if the user asks
@@ -2245,8 +2710,25 @@ app.post("/device/:slug/trial", async (req, res) => {
 // ---------------- REAL-TIME COMMAND RELAY (HUB -> DESKTOP) ----------------
 const desktopConnections = new Map(); // slug -> response object
 
+app.get("/device/:slug/desktop-relay/status", (req, res) => { const isConnected = desktopConnections.has(normalizeSlug(req.params.slug)); return res.json({ connected: isConnected }); });
+
 app.get("/device/:slug/desktop-relay", (req, res) => {
   const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
 
   // SSE (Server-Sent Events) setup for real-time relay
   res.setHeader('Content-Type', 'text/event-stream');
@@ -2270,6 +2752,21 @@ app.get("/device/:slug/desktop-relay", (req, res) => {
 
 app.post("/device/:slug/to-desktop", async (req, res) => {
   const slug = normalizeSlug(req.params.slug);
+    if (req.body.source === "rk-ai-phone") {
+      const { intent, parameters, source_slug } = req.body;
+      if (!source_slug) return res.status(401).json({ error: "Missing source_slug" });
+      const phoneExists = await checkDeviceBySlug(source_slug);
+      if (!phoneExists) return res.status(401).json({ error: "Unauthorized phone device" });
+      const desktopRes = desktopConnections.get(slug);
+      if (desktopRes) {
+        console.log(`[Relay] Phone ${source_slug} sending intent ${intent} to desktop ${slug}`);
+        desktopRes.write(`data: ${JSON.stringify({ intent, parameters })}\n\n`);
+        return res.json({ ok: true, message: "Relayed to desktop" });
+      } else {
+        return res.status(404).json({ error: "Desktop agent not connected for this slug" });
+      }
+    }
+
   const command = req.body; // { intent, parameters }
 
   const desktopRes = desktopConnections.get(slug);

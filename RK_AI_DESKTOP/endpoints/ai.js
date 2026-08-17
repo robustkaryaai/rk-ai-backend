@@ -113,6 +113,13 @@ router.post("/generate/image", async (req, res) => {
 
     logInfo(`Desktop Image Generate: "${prompt}"`);
     const { tier, limits, storageMB } = await getTierAndLimits(slug);
+    
+    const quotaCheck = await checkAndConsume(slug, tier, "image", 1);
+    if (!quotaCheck.ok) {
+        logWarn(`❌ QUOTA EXCEEDED for ${slug}: Image Generation limit reached.`);
+        return res.status(403).json({ ok: false, error: "RK AI Quota Exceeded. You have reached your Image Generation limit." });
+    }
+    
     const result = await generateImage(prompt, slug, tier, storageMB);
     
     if (result.image) {
@@ -137,6 +144,13 @@ router.post("/generate/video", async (req, res) => {
 
     logInfo(`Desktop Video Generate: "${prompt}"`);
     const { tier, limits, storageMB } = await getTierAndLimits(slug);
+    
+    const quotaCheck = await checkAndConsume(slug, tier, "video", 1);
+    if (!quotaCheck.ok) {
+        logWarn(`❌ QUOTA EXCEEDED for ${slug}: Video Generation limit reached.`);
+        return res.status(403).json({ ok: false, error: "RK AI Quota Exceeded. You have reached your Video Generation limit." });
+    }
+    
     const result = await generateVideo(prompt, slug, tier, storageMB, req.body);
     
     if (result.video) {
