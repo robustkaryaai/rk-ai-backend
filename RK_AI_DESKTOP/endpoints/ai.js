@@ -57,13 +57,13 @@ router.post("/generate", async (req, res) => {
       });
 
       // Call our existing Gemini service with exact tracking
-      const result = await callGemini(prompt, [], "", 2, null, null, slug, false, true); // returnMetadata = true
+      const result = await callGemini("", [], prompt, 2, null, null, slug, false, true); // returnMetadata = true
       
       const textOutput = typeof result === "object" ? result.text : result;
       res.write(textOutput);
       res.end();
     } else {
-      const result = await callGemini(prompt, [], "", 2, null, null, slug, false, true); // returnMetadata = true
+      const result = await callGemini("", [], prompt, 2, null, null, slug, false, true); // returnMetadata = true
       
       const textOutput = typeof result === "object" ? result.text : result;
       const metadata = typeof result === "object" ? result.metadata : null;
