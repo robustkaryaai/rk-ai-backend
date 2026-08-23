@@ -42,11 +42,11 @@ export class Parser {
     fs.writeFileSync(tempPath, buffer);
 
     try {
-      if (!process.env.GEMINI_API_KEY) {
-         throw new Error("No GEMINI_API_KEY set. Cannot parse massive PDF via Gemini.");
+      if (!process.env.GEMINI_API_KEY_FOR_HOME) {
+         throw new Error("No GEMINI_API_KEY_FOR_HOME set. Cannot parse massive PDF via Gemini.");
       }
       
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY_FOR_HOME });
 
       // Upload directly to Gemini to bypass Node.js RAM limits
       const uploadResult = await ai.files.upload({

@@ -7,8 +7,8 @@ dotenv.config();
 
 // ✅ Load multiple API keys
 const API_KEYS = [
-  process.env.GEMINI_API_KEY,        // Primary
-  process.env.GEMINI_API_KEY_BACKUP  // Backup
+  process.env.GEMINI_API_KEY_FOR_HOME,        // Primary
+  process.env.GEMINI_API_KEY_BACKUP_FOR_HOME  // Backup
 ].filter(Boolean);
 
 let currentKeyIndex = 0;

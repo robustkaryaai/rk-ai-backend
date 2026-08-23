@@ -4,9 +4,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 async function listModels() {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY_FOR_HOME;
   if (!apiKey) {
-    console.error("❌ GEMINI_API_KEY not found in .env");
+    console.error("❌ GEMINI_API_KEY_FOR_HOME not found in .env");
     return;
   }
 
