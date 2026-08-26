@@ -11,8 +11,6 @@ import { ensureLimitFile, getLimitsForTier } from "./RK_AI_HOME/limitManager.js"
 import { callGemini, listGeminiModels } from "./RK_AI_HOME/services/gemini.js";
 import { handleIntents } from "./RK_AI_HOME/taskHandler.js";
 import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./RK_AI_HOME/services/supabaseClient.js";
-import desktopRouter from "./RK_AI_DESKTOP/index.js";
-import billingRouter from "./RK_AI_DESKTOP/endpoints/billing.js";
 import { startPulseWorker } from "./RK_AI_HOME/pulseWorker.js";
 
 dotenv.config();
@@ -444,14 +442,14 @@ app.get("/subscription", async (req, res) => {
 });
 
 // ---------------- RK AI DESKTOP ENDPOINTS ----------------
-app.use("/rk-ai-desktop", desktopRouter);
+const { default: desktopRouter } = await import("./RK_AI_DESKTOP/index.js");
+const { default: billingRouter } = await import("./RK_AI_DESKTOP/endpoints/billing.js");
 
-// Mount billing at top-level for legacy frontend routes that call /billing/*
+app.use("/rk-ai-desktop", desktopRouter);
 app.use("/billing", billingRouter);
-// Mount billing under the desktop prefix so /rk-ai-desktop/billing/upgrade works
 app.use("/rk-ai-desktop/billing", billingRouter);
 
-import homeRouter from "./RK_AI_HOME/index.js";
+const { default: homeRouter } = await import("./RK_AI_HOME/index.js");
 app.use("/", homeRouter);
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 10000;
