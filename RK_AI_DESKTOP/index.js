@@ -5,6 +5,7 @@ import authRouter from "./endpoints/auth.js";
 import searchRouter from "./endpoints/search.js";
 import knowledgeRouter from "./endpoints/knowledge.js";
 import billingRouter from "./endpoints/billing.js";
+import modelsRouter from "./endpoints/models.js";
 import { createDesktopApiRouter } from "./api/router.js";
 import { createAppwritePlanService } from "./providers/appwritePlanService.js";
 import { createAppwriteDesktopStore } from "./providers/appwriteDesktopStore.js";
@@ -84,6 +85,7 @@ legacyRouter.use("/auth", authRouter);
 legacyRouter.use("/search", searchRouter);
 legacyRouter.use("/knowledge", knowledgeRouter);
 legacyRouter.use("/billing", billingRouter);
+legacyRouter.use("/models", modelsRouter);
 desktopRouter.use("/legacy", legacyRouter);
 
 export default desktopRouter;

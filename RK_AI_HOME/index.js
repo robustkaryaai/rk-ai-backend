@@ -2146,7 +2146,8 @@ homeRouter.post("/web/feedback", async (req, res) => {
         feedbackData
       );
     } catch (ignoreErr) {
-      console.warn("APPWRITE WARNING: 'feedback' collection might not exist. Skipping DB save:", feedbackData);
+      console.warn("APPWRITE WARNING: 'feedback' collection error:", ignoreErr.message || ignoreErr);
+      console.warn("Skipping DB save for:", feedbackData);
     }
 
     return res.json({ ok: true, message: "Feedback received. Thank you!" });
