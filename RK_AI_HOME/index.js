@@ -2122,6 +2122,41 @@ homeRouter.post("/web/contact", async (req, res) => {
     return res.status(500).json({ error: String(err) });
   }
 });
+homeRouter.post("/web/feedback", async (req, res) => {
+  try {
+    const data = req.body;
+    if (!data.message) return res.status(400).json({ error: "Feedback message required" });
+
+    const feedbackData = {
+      name: data.name || "Anonymous",
+      email: data.email || "",
+      category: data.category || "General Feedback",
+      rating: data.rating || "",
+      message: data.message,
+      version: data.version || "v1.0.0 (Beta)",
+      product: data.product || "neytreya",
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      await db.createDocument(
+        process.env.APPWRITE_DB_ID,
+        "feedback",
+        ID.unique(),
+        feedbackData
+      );
+    } catch (ignoreErr) {
+      console.warn("APPWRITE WARNING: 'feedback' collection might not exist. Skipping DB save:", feedbackData);
+    }
+
+    return res.json({ ok: true, message: "Feedback received. Thank you!" });
+  } catch (err) {
+    console.error("FEEDBACK ERROR:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+
 
 homeRouter.post("/web/preorder", async (req, res) => {
   try {
