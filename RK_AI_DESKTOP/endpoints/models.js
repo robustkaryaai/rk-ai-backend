@@ -12,11 +12,11 @@ const GITHUB_API = "https://api.github.com";
 // Map plan names to the exact asset filename in the GitHub Release
 const PLAN_TO_ASSET = {
   free: "rk_ai_thinker_mlx_encrypted.zip",
-  core: "rk_ai_thinker_mlx_encrypted.zip",      // same as free for now
-  pro: "rk_ai_thinker_pro_encrypted.zip",        // future
-  studio: "rk_ai_thinker_pro_encrypted.zip",     // future
-  elite: "rk_ai_thinker_elite_encrypted.zip",    // future
-  quantum: "rk_ai_thinker_elite_encrypted.zip",  // future
+  core: "rk_ai_thinker_mlx_encrypted.zip",
+  pro: "rk_ai_thinker_pro_encrypted.zip",
+  studio: "rk_ai_thinker_pro_encrypted.zip",
+  elite: "rk_ai_thinker_elite_encrypted.zip",
+  quantum: "rk_ai_thinker_elite_encrypted.zip",
 };
 
 /**
