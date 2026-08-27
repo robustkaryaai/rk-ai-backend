@@ -29,11 +29,7 @@ const PLAN_TO_ASSET = {
  * Query params: ?slug=<device-slug>
  */
 router.get("/download-url", async (req, res) => {
-  const { slug } = req.query;
-
-  if (!slug) {
-    return res.status(400).json({ ok: false, error: "Missing device slug." });
-  }
+  const { slug, tier, email } = req.query;
 
   const githubPat = process.env.GITHUB_MODEL_PAT;
   if (!githubPat) {
@@ -43,22 +39,40 @@ router.get("/download-url", async (req, res) => {
 
   try {
     // 1. Verify device and get plan from Appwrite
-    logInfo(`[ModelDownload] Verifying device: ${slug}`);
-    let plan = req.query.tier || "free";
+    logInfo(`[ModelDownload] Request for slug: ${slug}, email: ${email}`);
+    let plan = tier || "free";
     
     try {
-      const deviceInfo = await planService.verifyDeviceAccess(slug);
-      if (!deviceInfo.activeSubscription) {
-        return res.status(403).json({ ok: false, error: "No active subscription." });
+      if (slug && slug !== "unknown_device" && slug !== "null") {
+        const deviceInfo = await planService.verifyDeviceAccess(slug);
+        if (deviceInfo.activeSubscription) {
+          plan = deviceInfo.plan || plan;
+        }
+      } else {
+        throw new Error("Invalid slug");
       }
-      plan = deviceInfo.plan || plan;
     } catch (e) {
-      logInfo(`[ModelDownload] Bypassing Appwrite for unknown/invalid slug: ${slug}. Defaulting to requested tier: ${plan}`);
+      logInfo(`[ModelDownload] Slug check failed. Falling back to email lookup...`);
+      if (email) {
+        try {
+          const { getDatabaseUserByEmail } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+          const user = await getDatabaseUserByEmail(email);
+          if (user) {
+            plan = user.plan || user.desktop_plan || user.subscription_tier || plan;
+            // Normalize legacy plans
+            if (plan === "3" || plan === "4") plan = "studio";
+            if (plan === "1" || plan === "2") plan = "core";
+            if (plan === "0") plan = "free";
+          }
+        } catch (emailErr) {
+          logError(`[ModelDownload] Email lookup failed:`, emailErr);
+        }
+      }
     }
 
     const targetAsset = PLAN_TO_ASSET[plan] || PLAN_TO_ASSET["free"];
 
-    logInfo(`[ModelDownload] Device ${slug} is on plan '${plan}'. Serving asset: ${targetAsset}`);
+    logInfo(`[ModelDownload] Serving asset: ${targetAsset} for plan: ${plan}`);
 
     // 2. Fetch the latest release from the private GitHub repo using PAT
     const releasesRes = await fetch(
