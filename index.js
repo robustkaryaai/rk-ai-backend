@@ -186,6 +186,22 @@ app.get("/auth/google/callback", async (req, res) => {
       let dbUser = await getDatabaseUserByEmail(userInfo.email);
       if (!dbUser) {
           dbUser = await createDatabaseUser(userInfo.email, userInfo.name || userInfo.email.split("@")[0]);
+      } else if (!dbUser.slug) {
+          // Legacy users might not have a slug field yet. Fix it permanently in the DB.
+          const newSlug = Math.floor(100000000 + Math.random() * 900000000);
+          try {
+              const { db } = await import("../../RK_AI_HOME/services/appwriteClient.js");
+              await db.updateDocument(
+                  process.env.APPWRITE_DB_ID,
+                  process.env.APPWRITE_USERS_COLLECTION || "users",
+                  dbUser.$id,
+                  { slug: Number(newSlug) }
+              );
+              dbUser.slug = newSlug;
+          } catch (updateErr) {
+              console.error("[Web Auth] Failed to backfill slug for legacy user:", updateErr);
+              dbUser.slug = newSlug; // Proceed with temporary slug in memory
+          }
       }
 
       // Redirect to frontend with token, userId, slug, and plan
