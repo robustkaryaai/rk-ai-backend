@@ -35,7 +35,10 @@ async function validateDevice(req, res, next) {
   ) {
     return next();
   }
-  const slug = req.params.slug || req.headers["x-device-slug"];
+  // NOTE: req.params.slug is undefined at router.use() level because route matching
+  // hasn't happened yet. We extract the slug directly from the URL path instead.
+  const pathSlugMatch = req.path.match(/\/(?:device|audio|text|voice|chat|limits)\/([\d]{6,12})/);
+  const slug = (pathSlugMatch && pathSlugMatch[1]) || req.params.slug || req.headers["x-device-slug"];
   if (!slug || slug === "undefined" || slug === "null" || slug.trim() === "") {
     return res.status(401).json({ error: "Device slug required and must be valid (via URL param or X-Device-Slug header)" });
   }
