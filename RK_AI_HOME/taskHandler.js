@@ -338,27 +338,16 @@ export async function handleIntents(slug, intents, context = {}) {
         continue;
       }
 
-      /* ---------------- MUSIC (HANDLED BY PI) ---------------- */
-      // if (intent === "music") {
-      //   const music = await handleMusic(userPrompt, slug);
-      //
-      //   if (music?.link) {
-      //     const reply = `Playing ${userPrompt}`;
-      //     const jsonResponse = {
-      //       intent: "music",
-      //       reply: reply,
-      //       link: music.link
-      //     };
-      //
-      //     await appendChat(slug, userPrompt, reply);
-      //     results.push(jsonResponse);
-      //   } else {
-      //     const reply = "Could not find that song.";
-      //     await appendChat(slug, userPrompt, reply);
-      //     results.push({ intent: "music", reply });
-      //   }
-      //   continue;
-      // }
+      /* ---------------- MUSIC (PI handles playback, backend supplies reply) ---------------- */
+      if (intent === "music") {
+        // The Pi's music_manager handles actual audio playback locally.
+        // We just return a natural reply and the intent so the Pi knows to play.
+        const songQuery = parameters?.prompt || userPrompt;
+        const reply = `Playing ${songQuery} for you.`;
+        await appendChat(slug, userPrompt, reply);
+        results.push({ intent: "music", reply, parameters: { prompt: songQuery } });
+        continue;
+      }
 
 
       /* ---------------- STUDENT TASKS ---------------- */

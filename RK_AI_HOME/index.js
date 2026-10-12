@@ -625,8 +625,19 @@ async function handleTextRequest(req, res, slug, text, device) {
       await updateLastAI(normSlug, finalReply);
     }
 
+    // Derive the primary intent for the Pi to act on locally
+    const primaryIntent = intents[0]?.intent || "general";
+    const primaryParams = intents[0]?.parameters || {};
+    const primaryReply = intents[0]?.reply || "";
+
     const responseObj = {
-      reply: finalReply || "I processed that for you.",
+      reply: finalReply || primaryReply || "I processed that for you.",
+      intent: primaryIntent,
+      intents: intents.map((obj, i) => ({
+        intent: obj.intent,
+        reply: obj.reply || (i === 0 ? finalReply : "") || "",
+        parameters: obj.parameters || {}
+      })),
       text,
       shoom: true,
       timestamp: Date.now()
@@ -635,6 +646,9 @@ async function handleTextRequest(req, res, slug, text, device) {
     if (song_url) {
       responseObj.song_url = song_url;
       if (isMusic) responseObj.link = song_url;
+      // Inject song_url into the music intent parameters so Pi can play directly
+      const musicIntentObj = responseObj.intents.find(i => i.intent === "music");
+      if (musicIntentObj) musicIntentObj.parameters.song_url = song_url;
     }
 
     return res.json(responseObj);
