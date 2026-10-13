@@ -918,6 +918,15 @@ homeRouter.post("/device/:slug/settings", async (req, res) => {
       wakeWordsChanged = true;
     }
 
+    // Handle musicDownloadEnabled toggle
+    if (settings.musicDownloadEnabled !== undefined) {
+      updateData.musicDownloadEnabled = Boolean(settings.musicDownloadEnabled);
+    }
+    // Also accept camelCase variants sent by different app versions
+    if (settings.downloadMusic !== undefined) {
+      updateData.musicDownloadEnabled = Boolean(settings.downloadMusic);
+    }
+
     if (settings.ttsConfig !== undefined) {
       const normalizedTtsConfig = parseJsonSafely(settings.ttsConfig, null);
       if (normalizedTtsConfig && typeof normalizedTtsConfig === "object" && !Array.isArray(normalizedTtsConfig)) {
@@ -1614,6 +1623,22 @@ homeRouter.post("/device/:slug/mute", async (req, res) => {
       device.$id,
       { isMuted: muted }
     );
+
+    // Also push an instant command to the queue so Pi reacts within seconds (not 30s poll cycle)
+    try {
+      const collectionId = process.env.APPWRITE_COMMANDS_COLLECTION || "commands";
+      await db.createDocument(process.env.APPWRITE_DB_ID, collectionId, ID.unique(), {
+        slug: Number(slug),
+        commandType: muted ? "mute" : "unmute",
+        payload: JSON.stringify({ mute: muted }),
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        executedAt: null,
+        result: null
+      });
+    } catch (cmdErr) {
+      console.warn("[Mute] Failed to push instant command (non-fatal):", cmdErr.message);
+    }
 
     logInfo(`Device ${slug} mute state set to: ${muted}`);
 
