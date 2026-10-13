@@ -1135,6 +1135,12 @@ app.post("/device/:slug/settings", async (req, res) => {
       wakeWordsChanged = true;
     }
 
+    if (settings.musicDownloadEnabled !== undefined) {
+      wakeWordsBlob.meta.musicDownloadEnabled = settings.musicDownloadEnabled;
+      delete updateData.musicDownloadEnabled; // Remove so Appwrite doesn't throw Attribute Error
+      wakeWordsChanged = true;
+    }
+
     if (settings.ttsConfig !== undefined) {
       const normalizedTtsConfig = parseJsonSafely(settings.ttsConfig, null);
       if (normalizedTtsConfig && typeof normalizedTtsConfig === "object" && !Array.isArray(normalizedTtsConfig)) {
@@ -1145,9 +1151,7 @@ app.post("/device/:slug/settings", async (req, res) => {
         delete updateData.ttsConfig;
       }
     }
-    if (configUpdated) {
-      updateData.systemStatus = JSON.stringify(currentConfig);
-    }
+    // systemStatus attribute is not in Appwrite collection schema - kept in wakeWordsBlob.meta instead
     if (wakeWordsChanged) {
       updateData.wakeWords = JSON.stringify(wakeWordsBlob);
     }
