@@ -844,6 +844,37 @@ function parseWakeWordsDocument(rawValue) {
 }
 
 
+// GET: Pi polls this to fetch its own settings (isMuted, nightProtocol, musicDownload, wakeWords, TTS etc.)
+homeRouter.get("/device/:slug/settings", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ ok: false, error: "device_not_found" });
+
+    const wakeWordsBlob = parseWakeWordsDocument(device.wakeWords);
+    const meta = wakeWordsBlob.meta || {};
+
+    const settingsDoc = {
+      isMuted: device.isMuted ?? false,
+      memoryEnabled: device.memoryEnabled ?? true,
+      assistantName: device.assistantName || "RK",
+      greetingPhrase: device.greetingPhrase || "Radhe Radhe",
+      wakeWords: device.wakeWords || null,
+      ttsConfig: meta.ttsConfig || device.ttsConfig || null,
+      nightProtocolEnabled: meta.nightProtocolEnabled ?? true,
+      musicDownloadEnabled: device.musicDownloadEnabled ?? device.music_download_enabled ?? device.downloadMusic ?? false,
+      smart_devices: device.smart_devices || device.smartDevices || [],
+      subscription: device.subscription,
+    };
+
+    // Return in the format settings_sync.py expects: { documents: [doc] }
+    return res.json({ ok: true, documents: [settingsDoc] });
+  } catch (err) {
+    console.error("[GET Settings] Error:", err);
+    return res.status(500).json({ ok: false, error: String(err) });
+  }
+});
+
 // ---------------- DEVICE SETTINGS ----------------
 homeRouter.post("/device/:slug/settings", async (req, res) => {
   try {
