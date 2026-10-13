@@ -937,9 +937,7 @@ homeRouter.post("/device/:slug/settings", async (req, res) => {
         delete updateData.ttsConfig;
       }
     }
-    if (configUpdated) {
-      updateData.systemStatus = JSON.stringify(currentConfig);
-    }
+    // systemStatus is not an Appwrite attribute - kept in wakeWordsBlob.meta
     if (wakeWordsChanged) {
       updateData.wakeWords = JSON.stringify(wakeWordsBlob);
     }
