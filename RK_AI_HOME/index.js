@@ -565,18 +565,15 @@ async function handleTextRequest(req, res, slug, text, device) {
       return res.json({ ok: true, synced: true });
     }
 
-    // 1. Parallelize Gemini and Presence
-    const [rawIntents] = await Promise.all([
-      callGemini(
-        SYSTEM_PROMPT,
-        [],
-        text,
-        2,
-        device.geminiApiKey || null,
-        device.geminiModel || null
-      ),
-      appendUser(normSlug, `User: ${text}`)
-    ]);
+    // 1. Generate intents with Gemini (presence updated synchronously in memory)
+    const rawIntents = await callGemini(
+      SYSTEM_PROMPT,
+      [],
+      text,
+      2,
+      device.geminiApiKey || null,
+      device.geminiModel || null
+    );
 
     // Mark seen on text request too
     deviceLastSeen.set(normSlug, Date.now());
@@ -620,22 +617,18 @@ async function handleTextRequest(req, res, slug, text, device) {
       }
     }
 
-    // 5. Finalize Memory & Response
-    if (finalReply) {
-      await updateLastAI(normSlug, finalReply);
-    }
-
     // Derive the primary intent for the Pi to act on locally
     const primaryIntent = intents[0]?.intent || "general";
     const primaryParams = intents[0]?.parameters || {};
     const primaryReply = intents[0]?.reply || "";
+    const cleanSpokenReply = finalReply || primaryReply || "I processed that for you.";
 
     const responseObj = {
-      reply: finalReply || primaryReply || "I processed that for you.",
+      reply: cleanSpokenReply,
       intent: primaryIntent,
       intents: intents.map((obj, i) => ({
         intent: obj.intent,
-        reply: obj.reply || (i === 0 ? finalReply : "") || "",
+        reply: obj.reply || (i === 0 ? cleanSpokenReply : "") || "",
         parameters: obj.parameters || {}
       })),
       text,
@@ -651,7 +644,20 @@ async function handleTextRequest(req, res, slug, text, device) {
       if (musicIntentObj) musicIntentObj.parameters.song_url = song_url;
     }
 
-    return res.json(responseObj);
+    // 5. Send HTTP 200 response immediately to the client (Do NOT await storage sync!)
+    res.json(responseObj);
+
+    // 6. Asynchronous Background Storage Sync for chat.txt
+    setImmediate(async () => {
+      try {
+        await appendChat(normSlug, text, cleanSpokenReply);
+        logInfo(`[Background-Sync] chat.txt updated for ${normSlug}`);
+      } catch (syncErr) {
+        logError(`[Background-Sync-Error] Failed to sync chat.txt for ${normSlug}:`, syncErr);
+      }
+    });
+
+    return;
   } catch (err) {
     logError(`[Shoom-Error] ${slug}:`, err);
     return res.status(500).json({ error: "shoom_crash", message: String(err) });
