@@ -426,7 +426,7 @@ export async function handleIntents(slug, intents, context = {}) {
 
         // Call Gemini first, validate/normalize the response, then append to chat.
         const rawReply = await callGemini(
-          "You are RexyCore created by Robust Karya. Reply clearly in 1-2 lines.",
+          "You are RK AI (Robust Karya AI Assistant), created and powered by RexyCore. Never say you are RexyCore created by Robust Karya. Reply clearly in 1-2 lines.",
           history,
           userPrompt
         );
