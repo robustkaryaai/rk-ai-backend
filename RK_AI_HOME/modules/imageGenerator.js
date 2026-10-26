@@ -1,6 +1,6 @@
 import fs from "fs"; 
 import { saveFileToSlug } from "../services/supabaseClient.js";
-import { generateFilename } from "../utils/fileNaming.js";
+import { generateFilename, generateSmartFilename } from "../utils/fileNaming.js";
 
 // --- Configuration ---
 const DEAPI_BASE_URL = "https://api.deapi.ai";
@@ -140,7 +140,7 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
       }
       const buf = await downloadResponse.arrayBuffer();
       const imageBuffer = Buffer.from(buf);
-      const filename = generateFilename(prompt, "image", "jpeg");
+      const filename = await generateSmartFilename(prompt, "image", "jpeg", slug);
       await saveFileToSlug(slug, filename, imageBuffer);
       return { image: filename };
     }
@@ -158,7 +158,7 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
     }
     const buf = await downloadResponse.arrayBuffer();
     const imageBuffer = Buffer.from(buf);
-    const filename = generateFilename(prompt, "image", "jpeg");
+    const filename = await generateSmartFilename(prompt, "image", "jpeg", slug);
     await saveFileToSlug(slug, filename, imageBuffer);
     return { image: filename };
   }
@@ -188,7 +188,7 @@ export async function generateImage(prompt, slug, tier, storageLimitMB) {
 
   // 4. **Save File to Storage**
   // ----------------------------------------------------------
-  const filename = generateFilename(prompt, "image", "jpeg"); 
+  const filename = await generateSmartFilename(prompt, "image", "jpeg", slug); 
   console.log(`Saving image file: ${filename}`);
 
   await saveFileToSlug(slug, filename, imageBuffer);

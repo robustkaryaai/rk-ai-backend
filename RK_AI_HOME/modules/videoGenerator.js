@@ -1,6 +1,6 @@
 import fs from "fs";
 import { saveFileToSlug, downloadFileFromSlug, supabase } from "../services/supabaseClient.js";
-import { generateFilename } from "../utils/fileNaming.js";
+import { generateFilename, generateSmartFilename } from "../utils/fileNaming.js";
 import { generateImage } from "./imageGenerator.js";
 import { HfInference } from "@huggingface/inference";
 
@@ -60,7 +60,7 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB, opts = {
     }
 
     const buf = Buffer.from(await response.arrayBuffer());
-    const filename = generateFilename(prompt, "video", "mp4");
+    const filename = await generateSmartFilename(prompt, "video", "mp4", slug);
     await saveFileToSlug(slug, filename, buf);
     return { video: filename };
   }
@@ -149,7 +149,7 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB, opts = {
     const dl = await fetch(videoUrl);
     if (!dl.ok) throw new Error(`Download failed: ${dl.status}`);
     const buf = Buffer.from(await dl.arrayBuffer());
-    const filename = generateFilename(prompt, "video", "mp4");
+    const filename = await generateSmartFilename(prompt, "video", "mp4", slug);
     await saveFileToSlug(slug, filename, buf);
     return { video: filename };
   }
@@ -210,7 +210,7 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB, opts = {
     const dl = await fetch(videoUrl);
     if (!dl.ok) throw new Error(`Download failed: ${dl.status}`);
     const buf = Buffer.from(await dl.arrayBuffer());
-    const filename = generateFilename(prompt, "video", "mp4");
+    const filename = await generateSmartFilename(prompt, "video", "mp4", slug);
     await saveFileToSlug(slug, filename, buf);
     return { video: filename };
   }
@@ -248,7 +248,7 @@ export async function generateVideo(prompt, slug, tier, storageLimitMB, opts = {
 
       const ab = await blob.arrayBuffer();
       const buf = Buffer.from(ab);
-      const filename = generateFilename(prompt, "video", "mp4");
+      const filename = await generateSmartFilename(prompt, "video", "mp4", slug);
       await saveFileToSlug(slug, filename, buf);
       return { video: filename };
     } catch (err) {

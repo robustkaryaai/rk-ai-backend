@@ -4,7 +4,7 @@ import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import { callGemini } from "../services/gemini.js";
 import { saveFileToSlug } from "../services/supabaseClient.js";
-import { generateFilename } from "../utils/fileNaming.js";
+import { generateFilename, generateSmartFilename } from "../utils/fileNaming.js";
 import { logInfo, logError } from "../utils/logger.js";
 
 // Clean JSON response from Gemini
@@ -164,7 +164,9 @@ Rules:
   });
 
   const buffer = await Packer.toBuffer(doc);
-  const filename = generateFilename(prompt, type, "docx");
+  const filename = parsed?.title
+    ? `${parsed.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").substring(0, 40)}-${Date.now()}.docx`
+    : await generateSmartFilename(prompt, type, "docx", slug);
   await saveFileToSlug(slug, filename, buffer);
   logInfo(`[DOCX Generator] ✅ Saved to storage: ${filename}`);
 
@@ -253,7 +255,9 @@ Rules:
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const filename = generateFilename(prompt, type, "xlsx");
+  const filename = parsed?.title || parsed?.sheetName
+    ? `${String(parsed.title || parsed.sheetName).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").substring(0, 40)}-${Date.now()}.xlsx`
+    : await generateSmartFilename(prompt, type, "xlsx", slug);
   await saveFileToSlug(slug, filename, buffer);
   logInfo(`[Excel Generator] ✅ Saved to storage: ${filename}`);
 
@@ -396,7 +400,10 @@ Rules:
   });
 
   const buffer = await pptx.write({ outputType: "nodebuffer" });
-  const filename = generateFilename(prompt, "ppt", "pptx");
+  const firstSlideTitle = parsed?.slides?.[0]?.title;
+  const filename = firstSlideTitle
+    ? `${firstSlideTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").substring(0, 40)}-${Date.now()}.pptx`
+    : await generateSmartFilename(prompt, "ppt", "pptx", slug);
   await saveFileToSlug(slug, filename, buffer);
   logInfo(`[PPTX Generator] ✅ Saved to storage: ${filename}`);
 
