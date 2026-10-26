@@ -23,7 +23,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 // ---------------- CONFIG ----------------
 const BUCKET = process.env.SUPABASE_BUCKET || "user-files";
 const MEMORY_ROOT = "memory";
-const SUPABASE_ONLY_FILENAMES = new Set(["limit.txt"]);
+const SUPABASE_ONLY_FILENAMES = new Set(["limit.txt", "chat.txt"]);
 
 function isSupabaseOnlyFile(filename = "") {
   return SUPABASE_ONLY_FILENAMES.has(String(filename).toLowerCase());
