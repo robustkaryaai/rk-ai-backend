@@ -273,7 +273,14 @@ export async function handleIntents(slug, intents, context = {}) {
 
         const statusMsg = buildTaskReply(intent, parameters);
         await appendChat(slug, userPrompt, statusMsg);
-        await generateImage(userPrompt, slug, tierName, storageLimitMB);
+        
+        // 🚀 NON-BLOCKING BACKGROUND EXECUTION
+        // Do not await! Respond to Pi in ~1s so HTTP request never times out,
+        // while DeAPI generates & uploads the image in the background.
+        generateImage(userPrompt, slug, tierName, storageLimitMB).catch(err => {
+          console.error(`[Background-Image-Error] ${slug}:`, err);
+        });
+
         results.push(statusMsg);
         continue;
       }
