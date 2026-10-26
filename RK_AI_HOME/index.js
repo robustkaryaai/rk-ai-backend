@@ -372,6 +372,13 @@ const deviceBusyState = new Map(); // 🚀 Track explicit processing state (now 
 const deviceDownloadProgress = new Map(); // 🚀 TRACK MUSIC DOWNLOADS
 const deviceSTTLogs = new Map(); // 🚀 TRACK STT LOGS FOR FRONEND APP (slug -> [{timestamp, text}])
 
+// Lightweight device ping endpoint for 30s heartbeat
+homeRouter.post("/device/:slug/ping", (req, res) => {
+  const slug = normalizeSlug(req.params.slug);
+  deviceLastSeen.set(slug, Date.now());
+  return res.json({ ok: true, timestamp: Date.now() });
+});
+
 // Helper to normalize slug to 9-digit string
 homeRouter.get("/ai/models", async (req, res) => {
   const models = await listGeminiModels();
