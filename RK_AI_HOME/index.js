@@ -462,7 +462,7 @@ homeRouter.get("/device/:slug/status", async (req, res) => {
     shoom: true
   };
 
-  console.log(`[Status-Check] RAW_OUT: ${JSON.stringify(responsePayload)}`);
+  // Status-Check log silenced to prevent console spam
 
   return res.json(responsePayload);
 });
