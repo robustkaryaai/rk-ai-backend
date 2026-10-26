@@ -889,8 +889,6 @@ homeRouter.get("/limits/:slug", async (req, res) => {
 
     const tier = Number(device["subscription-tier"] || 0);
     const limits = await ensureLimitFile(slug);
-    const t = new Date().toISOString().split("T")[0];
-    const todayLimits = limits[t] || { image: 0, video: 0, ppt: 0 };
     const tierLimits = getLimitsForTier(tier);
 
     // 🚀 NEW: Matrix Subscription Data
@@ -899,7 +897,7 @@ homeRouter.get("/limits/:slug", async (req, res) => {
     const trialEnd = device.trialEnd || null;
 
     return res.json({
-      used: todayLimits,
+      used: limits,
       allowed: tierLimits,
       tier,
       isPro,
