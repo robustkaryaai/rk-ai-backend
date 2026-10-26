@@ -961,6 +961,7 @@ homeRouter.get("/device/:slug/settings", async (req, res) => {
       greetingPhrase: device.greetingPhrase || "Radhe Radhe",
       wakeWords: device.wakeWords || null,
       ttsConfig: meta.ttsConfig || device.ttsConfig || null,
+      voiceVolume: meta.voiceVolume !== undefined ? meta.voiceVolume : (device.voiceVolume !== undefined ? Number(device.voiceVolume) : 70),
       nightProtocolEnabled: meta.nightProtocolEnabled ?? true,
       musicDownloadEnabled: device.musicDownloadEnabled ?? device.music_download_enabled ?? device.downloadMusic ?? false,
       smart_devices: device.smart_devices || device.smartDevices || [],
@@ -1144,6 +1145,12 @@ homeRouter.post("/device/:slug/settings", async (req, res) => {
       delete updateData.musicDownloadEnabled;
       delete updateData.downloadMusic;
       configUpdated = true;
+      wakeWordsChanged = true;
+    }
+
+    if (settings.voiceVolume !== undefined) {
+      const vol = Math.max(0, Math.min(100, Number(settings.voiceVolume)));
+      wakeWordsBlob.meta.voiceVolume = vol;
       wakeWordsChanged = true;
     }
 
