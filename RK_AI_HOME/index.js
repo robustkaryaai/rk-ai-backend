@@ -400,9 +400,10 @@ homeRouter.get("/device/:slug/status", async (req, res) => {
     if (device) {
       const tierNum = device.subscription === "true" ? (isNaN(device["subscription-tier"]) ? String(device["subscription-tier"]).toLowerCase() : Number(device["subscription-tier"])) : 0;
 
-      // Check trial expiry (downgrade automatically ONLY if currently on a trial or student trial tier)
+      // Check trial expiry (downgrade automatically ONLY if currently on a trial or student trial tier AND not manually on an active paid/subscribed plan)
       const trialEnd = device.trialEnd || device.trial_end;
-      const isTrialSubscription = device.subscription === "true" && Number(device["subscription-tier"] || 0) === 1 && device.trialUsed === "true";
+      const isExplicitSubscription = device.subscription_expires_at && new Date() < new Date(device.subscription_expires_at);
+      const isTrialSubscription = !isExplicitSubscription && device.subscription === "true" && Number(device["subscription-tier"] || 0) === 1 && device.trialUsed === "true";
       if (isTrialSubscription && trialEnd && new Date() > new Date(trialEnd)) {
         console.log(`[Trial Expiry] 7-Day Trial expired for ${slug}. Auto-downgrading to Free Tier 0.`);
         await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, {
