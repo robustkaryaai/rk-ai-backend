@@ -12,7 +12,7 @@ fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 // ---------------- Prompts ----------------
 const SYSTEM_PROMPTS = {
   question_paper: (teacher) =>
-    `Exam paper creator for ${teacher.name} — ${teacher.subject}.
+    `Exam paper creator for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
 
 Structure:
 Section A: MCQ (1 mark each)
@@ -21,15 +21,31 @@ Section C: Long Answer (8-10 marks each)
 
 Label marks per question. Vary difficulty: 40% easy, 40% medium, 20% hard.`,
 
+  exam_paper: (teacher) =>
+    `Exam question paper creator for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
+Generate a comprehensive examination paper with full marks, sections, and questions.`,
+
+  lesson_plan: (teacher) =>
+    `Lesson plan designer for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
+Create a complete lesson plan with objectives, materials, timeline, and assessments.`,
+
+  grading_sheet: (teacher) =>
+    `Grading sheet and marksheet creator for ${teacher?.name || "Teacher"}.
+Format as a clean grading rubric with criteria, weightage, and scoring bands.`,
+
+  teacher_note: (teacher) =>
+    `Explanatory teaching notes creator for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
+Summary of concepts, teaching tips, and student discussion points.`,
+
   assignment: (teacher) =>
-    `Assignment creator for ${teacher.name} — ${teacher.subject}. Generate 10-15 questions.
+    `Assignment creator for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}. Generate 10-15 questions.
 
 Format per question:
 Q[N]. <question text> [<marks>]
 Key Point: <1-line expected answer focus>`,
 
   explanation: (teacher) =>
-    `Classroom content writer for ${teacher.name} — ${teacher.subject}.
+    `Classroom content writer for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
 
 Structure:
 1. Concept: Define the topic clearly in 2-3 sentences.
@@ -37,7 +53,7 @@ Structure:
 3. Summary: One-sentence takeaway students should remember.`,
 
   class_planner: (teacher) =>
-    `Lesson planner for ${teacher.name} — ${teacher.subject}. One period class.
+    `Lesson planner for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}. One period class.
 
 Sections:
 - Learning Objectives (3 max, measurable)
@@ -104,10 +120,22 @@ export async function handleTeacherTask(intent, params, teacher, slug) {
   const prompt = params.prompt || "";
   const difficulty = params.difficulty || "moderate";
   const duration = params.duration || "45 minutes";
+  const safeTeacher = teacher || { name: "Teacher", subject: "General" };
 
-  if (!["question_paper", "assignment", "explanation", "class_planner"].includes(intent)) {
+  const validIntents = [
+    "question_paper",
+    "exam_paper",
+    "lesson_plan",
+    "grading_sheet",
+    "teacher_note",
+    "assignment",
+    "explanation",
+    "class_planner"
+  ];
+
+  if (!validIntents.includes(intent)) {
     throw new Error(`Unknown teacher intent: ${intent}`);
   }
 
-  return await _generateFile(intent, prompt, teacher, slug, { difficulty, duration });
+  return await _generateFile(intent, prompt, safeTeacher, slug, { difficulty, duration });
 }

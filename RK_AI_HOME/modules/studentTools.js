@@ -23,6 +23,19 @@ const TIER_STORAGE = {
 
 // ------------------ Prompts ------------------
 const SYSTEM_PROMPTS = {
+  assignment: `Academic task and assignment generator for {student_name} ({student_level}).
+Help complete or structure the assignment.
+Format:
+- Topic overview and main points.
+- Step-by-step solutions or answers.
+- Key takeaways.`,
+
+  task: `Study planner and to-do organizer for {student_name} ({student_level}).
+Format:
+- Checklist of action items.
+- Prioritization: High / Medium / Low.
+- Estimated completion time.`,
+
   note: `Education specialist creating study notes for {student_name} ({student_level}).
 
 Format:
@@ -99,7 +112,7 @@ async function _generateFile(intent, prompt, slug, tier = "free") {
 export async function handleStudentTask(intent, params, slug, tier = "free") {
   const prompt = params.prompt || "No prompt provided";
 
-  if (!["note", "planner", "timetable"].includes(intent)) {
+  if (!["note", "planner", "timetable", "task", "assignment"].includes(intent)) {
     throw new Error(`Unknown student intent: ${intent}`);
   }
 
