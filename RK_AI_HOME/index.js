@@ -1136,13 +1136,15 @@ homeRouter.post("/device/:slug/settings", async (req, res) => {
       wakeWordsChanged = true;
     }
 
-    // Handle musicDownloadEnabled toggle
-    if (settings.musicDownloadEnabled !== undefined) {
-      updateData.musicDownloadEnabled = Boolean(settings.musicDownloadEnabled);
-    }
-    // Also accept camelCase variants sent by different app versions
-    if (settings.downloadMusic !== undefined) {
-      updateData.musicDownloadEnabled = Boolean(settings.downloadMusic);
+    // Handle musicDownloadEnabled toggle (pack inside wakeWords metadata to prevent Appwrite schema error)
+    if (settings.musicDownloadEnabled !== undefined || settings.downloadMusic !== undefined) {
+      const isEnabled = Boolean(settings.musicDownloadEnabled !== undefined ? settings.musicDownloadEnabled : settings.downloadMusic);
+      currentConfig.musicDownloadEnabled = isEnabled;
+      wakeWordsBlob.meta.musicDownloadEnabled = isEnabled;
+      delete updateData.musicDownloadEnabled;
+      delete updateData.downloadMusic;
+      configUpdated = true;
+      wakeWordsChanged = true;
     }
 
     if (settings.ttsConfig !== undefined) {
