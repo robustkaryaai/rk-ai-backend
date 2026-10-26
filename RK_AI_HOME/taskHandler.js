@@ -302,18 +302,28 @@ export async function handleIntents(slug, intents, context = {}) {
           continue;
         }
 
-        await generateVideo(userPrompt, slug, tierName, storageLimitMB);
         const reply = buildTaskReply(intent, parameters);
         await appendChat(slug, userPrompt, reply);
+        
+        // 🚀 Non-blocking video generation
+        generateVideo(userPrompt, slug, tierName, storageLimitMB).catch(err => {
+          console.error(`[Background-Video-Error] ${slug}:`, err);
+        });
+
         results.push(reply);
         continue;
       }
 
       /* ---------------- DOCX ---------------- */
       if (intent === "docx") {
-        await createDocx(userPrompt, slug, tierName, storageLimitMB);
         const reply = buildTaskReply(intent, parameters);
         await appendChat(slug, userPrompt, reply);
+        
+        // 🚀 Non-blocking docx creation
+        createDocx(userPrompt, slug, tierName, storageLimitMB).catch(err => {
+          console.error(`[Background-Docx-Error] ${slug}:`, err);
+        });
+
         results.push(reply);
         continue;
       }
@@ -328,20 +338,20 @@ export async function handleIntents(slug, intents, context = {}) {
           continue;
         }
 
-        const resp = await createPPT(userPrompt, slug, tierName, storageLimitMB);
         const reply = buildTaskReply(intent, parameters);
         await appendChat(slug, userPrompt, reply);
-        results.push(reply);
 
-        const slides = Number(resp?.num_slides || 0);
-        if (slides > 0) {
-          const checkSlides = await checkAndConsume(slug, tierNum, "ppt_slides", slides);
-          if (!checkSlides.ok) {
-            const warn = `⚠️ Slide limit reached for today (${checkSlides.allowed}). Presentation generated.`;
-            await appendChat(slug, userPrompt, warn);
-            results.push(warn);
+        // 🚀 Non-blocking PPT creation
+        createPPT(userPrompt, slug, tierName, storageLimitMB).then(async resp => {
+          const slides = Number(resp?.num_slides || 0);
+          if (slides > 0) {
+            await checkAndConsume(slug, tierNum, "ppt_slides", slides).catch(() => {});
           }
-        }
+        }).catch(err => {
+          console.error(`[Background-PPT-Error] ${slug}:`, err);
+        });
+
+        results.push(reply);
         continue;
       }
 
