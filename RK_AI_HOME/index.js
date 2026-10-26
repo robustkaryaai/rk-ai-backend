@@ -400,16 +400,17 @@ homeRouter.get("/device/:slug/status", async (req, res) => {
     if (device) {
       const tierNum = device.subscription === "true" ? (isNaN(device["subscription-tier"]) ? String(device["subscription-tier"]).toLowerCase() : Number(device["subscription-tier"])) : 0;
 
-      // Check trial expiry
-      if (tierNum === "infinity" && device.trial_end) {
-        if (new Date() > new Date(device.trial_end)) {
-          console.log(`[Trial Expiry] Revoking expired trial for ${slug}`);
-          db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, {
-            subscription: "false",
-            "subscription-tier": 0
-          }).catch(console.error);
-          return res.json({ slug, status: isOnline ? "online" : "offline", isBusy: busyState !== "idle", storageMB: 0, shoom: true });
-        }
+      // Check trial expiry (downgrade automatically after trial ends)
+      const trialEnd = device.trialEnd || device.trial_end;
+      if (trialEnd && new Date() > new Date(trialEnd)) {
+        console.log(`[Trial Expiry] 7-Day Trial expired for ${slug}. Auto-downgrading to Free Tier 0.`);
+        await db.updateDocument(process.env.APPWRITE_DB_ID, process.env.APPWRITE_DEVICES_COLLECTION, device.$id, {
+          subscription: "false",
+          "subscription-tier": 0,
+          trialUsed: "true"
+        }).catch(console.error);
+        device.subscription = "false";
+        device["subscription-tier"] = 0;
       }
 
       const tierMap = { 0: "free", 1: "student", 2: "creator", 3: "pro", 4: "studio", "infinity": "infinity", "Infinity": "infinity" };
@@ -997,6 +998,97 @@ homeRouter.post("/device/:slug/storage/disconnect-google", async (req, res) => {
     return res.json({ ok: true, storageUsing: "supabase", message: "Google Drive disconnected successfully." });
   } catch (err) {
     logError("DISCONNECT GOOGLE DRIVE ERROR:", err);
+    return res.status(500).json({ error: "Server error", message: String(err) });
+  }
+});
+
+// POST: Disconnect Spotify account
+homeRouter.post("/device/:slug/spotify/disconnect", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "Device not found" });
+
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      {
+        spotifyConnected: "false",
+        spotifyAccessToken: null,
+        spotifyRefreshToken: null
+      }
+    );
+
+    logInfo(`[Spotify] Disconnected Spotify account for device ${slug}.`);
+    return res.json({ ok: true, spotifyConnected: false, message: "Spotify account disconnected successfully." });
+  } catch (err) {
+    logError("DISCONNECT SPOTIFY ERROR:", err);
+    return res.status(500).json({ error: "Server error", message: String(err) });
+  }
+});
+
+// POST: Update / Upgrade / Downgrade Device Tier
+homeRouter.post("/device/:slug/plan", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const { tier, plan } = req.body;
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "Device not found" });
+
+    const tierMap = {
+      0: "free",
+      1: "student",
+      2: "creator",
+      3: "pro",
+      4: "studio",
+      "free": 0,
+      "trial": 1,
+      "student": 1,
+      "creator": 2,
+      "pro": 3,
+      "studio": 4,
+      "elite": 2,
+      "quantum": 3,
+      "infinity": 4
+    };
+
+    let targetTierNum = 0;
+    if (typeof tier === "number") {
+      targetTierNum = tier;
+    } else if (tier && tierMap[tier] !== undefined) {
+      targetTierNum = tierMap[tier];
+    } else if (plan && tierMap[plan] !== undefined) {
+      targetTierNum = tierMap[plan];
+    }
+
+    const isSubscribed = targetTierNum > 0;
+    const now = new Date();
+    const expiry = isSubscribed ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString() : null;
+
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      {
+        subscription: isSubscribed ? "true" : "false",
+        "subscription-tier": targetTierNum,
+        subscription_expires_at: expiry,
+        trialEnd: targetTierNum === 0 ? null : (device.trialEnd || null)
+      }
+    );
+
+    logInfo(`[Plan] Device ${slug} plan changed to tier: ${targetTierNum} (${tierMap[targetTierNum] || 'free'}).`);
+    return res.json({
+      ok: true,
+      slug,
+      tier: targetTierNum,
+      tierName: tierMap[targetTierNum] || "free",
+      subscription: isSubscribed,
+      expiresAt: expiry
+    });
+  } catch (err) {
+    logError("PLAN UPDATE ERROR:", err);
     return res.status(500).json({ error: "Server error", message: String(err) });
   }
 });
