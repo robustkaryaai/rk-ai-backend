@@ -98,13 +98,12 @@ ${content}
     fs.writeFileSync(fpath, fullText, "utf-8");
     logInfo(`[teacherHelper] ${intent} saved locally: ${fpath}`);
 
-    // ✅ 3️⃣ Supabase Upload (BUFFER — NOT FILE PATH)
-    const supaPath = `slug-${slug}/${fname}`;
+    // ✅ 3️⃣ Supabase / Google Drive Upload (Pass bare filename, saveFileToSlug handles directory)
     const buffer = Buffer.from(fullText, "utf-8");
 
-    await saveFileToSlug(slug, supaPath, buffer);
+    await saveFileToSlug(slug, fname, buffer);
 
-    logInfo(`[teacherHelper] ${intent} uploaded to Supabase: ${supaPath}`);
+    logInfo(`[teacherHelper] ${intent} uploaded to storage: ${fname}`);
 
     // ✅ 4️⃣ ONLY RETURN SPOKEN CONTENT
     return content;
