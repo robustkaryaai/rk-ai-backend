@@ -2,13 +2,13 @@
 import { logInfo, logWarn } from "./utils/logger.js";
 import { getSubscriptionStatus, incrementAppwriteUsage } from "./services/appwriteClient.js";
 
-// Monthly Limits per Tier
+// Monthly Limits per Tier (Tier 0 Free includes baseline 5 images & 2 videos for testing)
 const TIER_LIMITS = {
-  0: { tokens: 0, image: 0, video: 0, ppt: 0, ppt_slides: 0, rpm: 15 }, // Free
-  1: { tokens: 1500000, image: 150, video: 15, ppt: 999999, ppt_slides: 999999, rpm: 5, rpd: 20 }, // Pro
-  2: { tokens: 5000000, image: 600, video: 30, ppt: 999999, ppt_slides: 999999, rpm: 60 }, // Elite
-  3: { tokens: 15000000, image: 2000, video: 100, ppt: 999999, ppt_slides: 999999, rpm: 150 }, // Quantum
-  4: { tokens: 99999999, image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999, rpm: 300 }, // Infinity
+  0: { tokens: 500000, image: 10, video: 2, ppt: 10, ppt_slides: 50, rpm: 15 }, // Free
+  1: { tokens: 1500000, image: 150, video: 15, ppt: 999999, ppt_slides: 999999, rpm: 30, rpd: 100 }, // Student / Trial
+  2: { tokens: 5000000, image: 600, video: 30, ppt: 999999, ppt_slides: 999999, rpm: 60 }, // Creator
+  3: { tokens: 15000000, image: 2000, video: 100, ppt: 999999, ppt_slides: 999999, rpm: 150 }, // Pro
+  4: { tokens: 99999999, image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999, rpm: 300 }, // Studio / Infinity
   'infinity': { tokens: 99999999, image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999, rpm: 300 },
   'Infinity': { tokens: 99999999, image: 999999, video: 999999, ppt: 999999, ppt_slides: 999999, rpm: 300 }
 };
