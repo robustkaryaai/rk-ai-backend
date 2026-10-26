@@ -1004,6 +1004,33 @@ homeRouter.get("/device/:slug/settings", async (req, res) => {
   }
 });
 
+// POST: Disconnect Google Drive storage (reverts device back to Supabase)
+homeRouter.post("/device/:slug/storage/disconnect-google", async (req, res) => {
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const device = await getUserPlanBySlug(slug);
+    if (!device) return res.status(404).json({ error: "Device not found" });
+
+    await db.updateDocument(
+      process.env.APPWRITE_DB_ID,
+      process.env.APPWRITE_DEVICES_COLLECTION,
+      device.$id,
+      {
+        storageUsing: "supabase",
+        googleAccessToken: null,
+        googleRefreshToken: null,
+        googleFolderId: null
+      }
+    );
+
+    logInfo(`[Storage] Disconnected Google Drive for device ${slug}. Storage set back to Supabase.`);
+    return res.json({ ok: true, storageUsing: "supabase", message: "Google Drive disconnected successfully." });
+  } catch (err) {
+    logError("DISCONNECT GOOGLE DRIVE ERROR:", err);
+    return res.status(500).json({ error: "Server error", message: String(err) });
+  }
+});
+
 // ---------------- DEVICE SETTINGS ----------------
 homeRouter.post("/device/:slug/settings", async (req, res) => {
   try {
