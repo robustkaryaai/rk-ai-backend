@@ -682,11 +682,18 @@ export async function listFilesFromSlug(slug) {
               
               // Guess true mimeType if encrypted, since it uploads as octet-stream
               let actualMime = file.mimeType;
-              if (isEnc) {
-                if (baseName.endsWith(".jpg") || baseName.endsWith(".jpeg")) actualMime = "image/jpeg";
-                else if (baseName.endsWith(".png")) actualMime = "image/png";
-                else if (baseName.endsWith(".mp4")) actualMime = "video/mp4";
-                else if (baseName.endsWith(".mp3")) actualMime = "audio/mpeg";
+              if (isEnc || actualMime === "application/octet-stream") {
+                const lower = baseName.toLowerCase();
+                if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) actualMime = "image/jpeg";
+                else if (lower.endsWith(".png")) actualMime = "image/png";
+                else if (lower.endsWith(".mp4")) actualMime = "video/mp4";
+                else if (lower.endsWith(".mp3")) actualMime = "audio/mpeg";
+                else if (lower.endsWith(".pdf")) actualMime = "application/pdf";
+                else if (lower.endsWith(".docx")) actualMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                else if (lower.endsWith(".pptx")) actualMime = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+                else if (lower.endsWith(".xlsx")) actualMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                else if (lower.endsWith(".txt")) actualMime = "text/plain";
+                else if (lower.endsWith(".json")) actualMime = "application/json";
               }
 
               return {
