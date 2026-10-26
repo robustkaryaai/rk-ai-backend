@@ -7,46 +7,32 @@ dotenv.config();
 
 // ✅ Load multiple API keys
 const API_KEYS = [
-  process.env.GEMINI_API_KEY_FOR_HOME,        // Primary
-  process.env.GEMINI_API_KEY_BACKUP_FOR_HOME  // Backup
+  process.env.GEMINI_API_KEY_FOR_HOME,
+  process.env.GEMINI_API_KEY_BACKUP_FOR_HOME,
+  process.env.GEMINI_API_KEY
 ].filter(Boolean);
 
 let currentKeyIndex = 0;
-let genAI = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] });
+let genAI = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] || "dummy" });
 
 // ✅ Auto Switch Key
 function switchApiKey() {
+  if (API_KEYS.length <= 1) return;
   currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
   genAI = new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] });
-  logInfo(`🔁 Switched to Gemini API Key #${currentKeyIndex + 1}`);
+  logInfo(`🔁 Switched to Gemini API Key #${currentKeyIndex + 1} (${API_KEYS[currentKeyIndex].substring(0, 6)}...)`);
 }
 
 // ✅ Ultra-Safe Gemini Caller
 export async function listGeminiModels(customApiKey = null) {
-  try {
-    const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
-    
-    // 🚀 Fixed: Use getGenerativeModel instead of non-existent listModels on SDK instance
-    // Note: The @google/genai SDK doesn't actually have a listModels method on the GenAI instance.
-    // We typically define available models manually or fetch them from a different endpoint.
-    // Since we want accuracy, let's use the known good models list.
-    
-    return [
-      { name: "gemma-4-26b-a4b-it", displayName: "Gemma 4 26B (Pro Default)" },
-      { name: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite (Elite/Quantum Default)" },
-      { name: "gemini-3.1-flash-lite-preview", displayName: "Gemini 3.1 Flash Lite (Pro Fallback)" },
-      { name: "gemma-4-31b-it", displayName: "Gemma 4 31B (Elite/Quantum Fallback)" }
-    ];
-  } catch (err) {
-    logError("❌ Failed to list Gemini models:", err.message);
-    return [
-      { name: "gemma-4-26b-a4b-it", displayName: "Gemma 4 26B (Pro Default)" },
-      { name: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite (Elite/Quantum Default)" }
-    ];
-  }
+  return [
+    { name: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash (Ultra Fast & Stable)" },
+    { name: "gemini-1.5-flash", displayName: "Gemini 1.5 Flash (Reliable Fallback)" },
+    { name: "gemma-4-26b-a4b-it", displayName: "Gemma 4 26B (Pro Default)" }
+  ];
 }
 
-export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 2, customApiKey = null, customModel = null, slug = null, useWebSearch = false, returnMetadata = false) {
+export async function callGemini(systemPrompt, chatHistory = [], userPrompt = "", retries = 5, customApiKey = null, customModel = null, slug = null, useWebSearch = false, returnMetadata = false) {
   const startTime = Date.now();
   try {
     const historyText = Array.isArray(chatHistory)
@@ -63,7 +49,7 @@ ${userPrompt}
 `;
 
     const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
-    const modelToUse = customModel || "gemma-4-26b-a4b-it"; // Default to Pro
+    const modelToUse = customModel || "gemini-2.5-flash"; // Default to rock-solid Gemini Flash
 
     const config = {};
     if (useWebSearch) {
@@ -115,62 +101,31 @@ ${userPrompt}
     return textOutput;
 
   } catch (err) {
-    const msg = err?.message || "";
-    
-    // If using custom API key, fallback to System Keys if they hit a rate limit!
+    const msg = err?.message || String(err);
+    logError(`❌ Gemini call attempt failed (${retries} retries left):`, msg);
+
+    // If using custom API key, fallback to System Keys if it hit a rate limit or 500
     if (customApiKey) {
-      logError("❌ Gemini custom key failure:", msg);
-      if (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("rate") || msg.includes("404")) {
-          logInfo("🔄 Custom Key failure! Falling back to System API Keys to prevent downtime...");
-          customApiKey = null; // Remove custom key for the retry
-          // We will let it fall through to the system retry logic below!
-      } else {
-          return `Custom AI Error: ${msg.includes("401") ? "Invalid API Key" : msg}`;
-      }
+      logInfo("🔄 Custom Key failure! Falling back to System API Keys...");
+      customApiKey = null;
     }
 
-    // Determine fallback model
-    const currentModel = customModel || "gemma-4-26b-a4b-it";
-    let fallbackModel = currentModel;
-    if (currentModel === "gemma-4-26b-a4b-it") {
-        fallbackModel = "gemini-3.1-flash-lite-preview"; // Pro fallback
-    } else if (currentModel === "gemini-3.5-flash-lite") {
-        fallbackModel = "gemma-4-31b-it"; // Elite fallback
+    // Determine fallback model on failure
+    let fallbackModel = "gemini-1.5-flash";
+    if (customModel === "gemini-1.5-flash") {
+      fallbackModel = "gemini-2.5-flash";
     }
 
-    // ✅ Auto switch and delay on quota/rate limits or 404s/503s
-    if (
-      msg.includes("503") ||
-      msg.includes("overloaded") ||
-      msg.includes("suspended") ||
-      msg.includes("429") ||
-      msg.includes("quota") ||
-      msg.includes("exhausted") ||
-      msg.includes("rate") ||
-      msg.includes("404") ||
-      msg.includes("not found")
-    ) {
-      logError(`⚠ Gemini overloaded/missing. Error: ${msg}`);
-      
-      // If it's a rate limit or 503, swap keys and wait
-      if (!msg.includes("404") && !msg.includes("not found")) {
-          logError(`Switching API Key and waiting 4 seconds...`);
-          switchApiKey();
-          await new Promise(r => setTimeout(r, 4000));
-      }
-      if (msg.includes("404") || msg.includes("not found")) {
-        logError(`Model missing! Instantly retrying with fallback model: gemini-3.1-flash-lite-preview`);
-        const modelToUse = customModel || "gemini-3.1-flash-lite-preview"; 
-        return await callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, modelToUse, slug, useWebSearch, returnMetadata);
-      }
-
-      if (retries > 0) {
-        return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, fallbackModel, slug);
-      }
+    // Always rotate key on any transient, rate-limit, 500, or network error
+    if (retries > 0) {
+      switchApiKey();
+      // Brief jitter delay
+      await new Promise(r => setTimeout(r, 1000));
+      return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, fallbackModel, slug, useWebSearch, returnMetadata);
     }
 
-    logError("❌ Gemini final failure:", msg);
-    return "Servers are busy right now. Please try again in a few moments.";
+    logError("❌ Gemini final failure after all retries:", msg);
+    return "I am having trouble connecting to AI servers right now. Please try again in a moment.";
   }
 }
 
