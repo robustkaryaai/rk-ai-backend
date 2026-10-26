@@ -247,7 +247,8 @@ export async function handleIntents(slug, intents, context = {}) {
 
       /* -------- MCU PASS THROUGH -------- */
       if (PASS_THROUGH.includes(intent)) {
-        results.push({ intent, parameters, execution: "microcontroller" });
+        const passReply = task.reply || `Executing ${intent.replace(/_/g, " ")}.`;
+        results.push({ intent, parameters, execution: "microcontroller", reply: passReply });
         continue;
       }
 
@@ -371,13 +372,11 @@ export async function handleIntents(slug, intents, context = {}) {
 
 
       /* ---------------- STUDENT TASKS ---------------- */
-      if (["note", "planner", "timetable", "task"].includes(intent)) {
-        // Generate and save student files, but reply with a concise human-friendly status
-        try {
-          await handleStudentTask(intent, parameters, slug);
-        } catch (err) {
-          console.error("Student task generation failed:", err);
-        }
+      if (["note", "planner", "timetable", "task", "assignment"].includes(intent)) {
+        // 🚀 NON-BLOCKING: Generate and save student files in background so HTTP never times out!
+        handleStudentTask(intent, parameters, slug).catch(err => {
+          console.error(`[Background-Student-Task-Error] ${intent}:`, err);
+        });
 
         const reply = buildTaskReply(intent, parameters, task.reply);
         await appendChat(slug, userPrompt, reply);
@@ -386,12 +385,11 @@ export async function handleIntents(slug, intents, context = {}) {
       }
 
       /* ---------------- TEACHER TASKS ---------------- */
-      if (["lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note"].includes(intent)) {
-        try {
-          await handleTeacherTask(intent, parameters, context.teacher, slug);
-        } catch (err) {
-          console.error("Teacher task generation failed:", err);
-        }
+      if (["lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note", "question_paper"].includes(intent)) {
+        // 🚀 NON-BLOCKING: Generate and upload teacher files in background so HTTP returns instantly!
+        handleTeacherTask(intent, parameters, context.teacher, slug).catch(err => {
+          console.error(`[Background-Teacher-Task-Error] ${intent}:`, err);
+        });
 
         const reply = buildTaskReply(intent, parameters, task.reply);
         await appendChat(slug, userPrompt, reply);
