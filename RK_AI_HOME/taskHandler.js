@@ -438,15 +438,15 @@ export async function handleIntents(slug, intents, context = {}) {
         continue;
       }
 
-      /* ---------------- GEMINI CHAT ---------------- */
-      if (intent === "chat" || intent === "general") {
+      /* ---------------- GEMINI CHAT, WEATHER, NEWS & DIRECT INTENTS ---------------- */
+      if (intent === "chat" || intent === "general" || intent === "weather" || intent === "news" || intent === "shutdown") {
         // 🚀 FAST-PATH: If Gemini already provided direct reply in intent classifier, use it!
         // This avoids a redundant second Gemini call and cuts response latency by >70%.
         const prebuiltReply = task.reply || parameters.reply;
         if (prebuiltReply && typeof prebuiltReply === "string" && prebuiltReply.trim().length > 0) {
           const directReply = prebuiltReply.trim();
           await appendChat(slug, userPrompt, directReply);
-          results.push(directReply);
+          results.push({ intent, reply: directReply, parameters });
           continue;
         }
 
@@ -454,7 +454,7 @@ export async function handleIntents(slug, intents, context = {}) {
 
         // Call Gemini fallback if no direct reply was provided
         const rawReply = await callGemini(
-          "You are RK AI (Robust Karya AI Assistant), created and powered by RexyCore. Never say you are RexyCore created by Robust Karya. Reply clearly in 1-2 lines.",
+          "You are RK AI (Robust Karya AI Assistant), created and powered by RexyCore. Reply clearly in 1-2 lines.",
           history,
           userPrompt
         );
@@ -469,7 +469,7 @@ export async function handleIntents(slug, intents, context = {}) {
 
         if (reply) {
           await appendChat(slug, userPrompt, reply);
-          results.push(reply);
+          results.push({ intent, reply, parameters });
           continue;
         } else {
           results.push("❌ Failed to get a valid response from Gemini.");
