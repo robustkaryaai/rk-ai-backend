@@ -26,9 +26,10 @@ function switchApiKey() {
 // ✅ Ultra-Safe Gemini Caller
 export async function listGeminiModels(customApiKey = null) {
   return [
-    { name: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash (Ultra Fast & Stable)" },
-    { name: "gemini-1.5-flash", displayName: "Gemini 1.5 Flash (Reliable Fallback)" },
-    { name: "gemma-4-26b-a4b-it", displayName: "Gemma 4 26B (Pro Default)" }
+    { name: "gemma-4-26b-a4b-it", displayName: "Gemma 4 26B (Pro Default)" },
+    { name: "gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite (Elite/Quantum Default)" },
+    { name: "gemini-3.1-flash-lite-preview", displayName: "Gemini 3.1 Flash Lite (Pro Fallback)" },
+    { name: "gemma-4-31b-it", displayName: "Gemma 4 31B (Elite/Quantum Fallback)" }
   ];
 }
 
@@ -49,7 +50,7 @@ ${userPrompt}
 `;
 
     const currentGenAI = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : genAI;
-    const modelToUse = customModel || "gemini-2.5-flash"; // Default to rock-solid Gemini Flash
+    const modelToUse = customModel || "gemma-4-26b-a4b-it"; // Default back to Gemma 4 26B
 
     const config = {};
     if (useWebSearch) {
@@ -110,16 +111,18 @@ ${userPrompt}
       customApiKey = null;
     }
 
-    // Determine fallback model on failure
-    let fallbackModel = "gemini-1.5-flash";
-    if (customModel === "gemini-1.5-flash") {
-      fallbackModel = "gemini-2.5-flash";
+    // Fallback model logic between Gemma 4 26B and Gemini 3.5 Flash Lite
+    const currentModel = customModel || "gemma-4-26b-a4b-it";
+    let fallbackModel = "gemini-3.5-flash-lite";
+    if (currentModel === "gemini-3.5-flash-lite") {
+      fallbackModel = "gemini-3.1-flash-lite-preview";
+    } else if (currentModel === "gemini-3.1-flash-lite-preview") {
+      fallbackModel = "gemma-4-31b-it";
     }
 
-    // Always rotate key on any transient, rate-limit, 500, or network error
+    // Always rotate key and retry on any transient error, 500, or rate limit
     if (retries > 0) {
       switchApiKey();
-      // Brief jitter delay
       await new Promise(r => setTimeout(r, 1000));
       return callGemini(systemPrompt, chatHistory, userPrompt, retries - 1, customApiKey, fallbackModel, slug, useWebSearch, returnMetadata);
     }
