@@ -1436,8 +1436,15 @@ homeRouter.get("/device/:slug/file/:filename", async (req, res) => {
     else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
     else if (lowerName.endsWith('.mp4')) mimeType = 'video/mp4';
     else if (lowerName.endsWith('.mp3')) mimeType = 'audio/mpeg';
+    else if (lowerName.endsWith('.pdf')) mimeType = 'application/pdf';
+    else if (lowerName.endsWith('.docx')) mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    else if (lowerName.endsWith('.pptx')) mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    else if (lowerName.endsWith('.xlsx')) mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    else if (lowerName.endsWith('.txt')) mimeType = 'text/plain; charset=utf-8';
+    else if (lowerName.endsWith('.json')) mimeType = 'application/json';
 
     res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.send(buffer);
   } catch (err) {
