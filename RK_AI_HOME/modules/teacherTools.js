@@ -1,140 +1,28 @@
-// teacherHelper.js ✅ PRODUCTION SAFE
-import fs from "fs";
-import path from "path";
-import { callGemini } from "../services/gemini.js";
-import { saveFileToSlug } from "../services/supabaseClient.js";
+import { createProfessionalDocx, createProfessionalExcel } from "./officeGenerator.js";
 import { logInfo, logError } from "../utils/logger.js";
 
-const MEMORY_DIR = path.resolve("./memory");
-const OUTPUT_DIR = path.join(MEMORY_DIR, "teacher_outputs");
-fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-
-// ---------------- Prompts ----------------
-const SYSTEM_PROMPTS = {
-  question_paper: (teacher) =>
-    `Exam paper creator for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
-
-Structure:
-Section A: MCQ (1 mark each)
-Section B: Short Answer (3-4 marks each)
-Section C: Long Answer (8-10 marks each)
-
-Label marks per question. Vary difficulty: 40% easy, 40% medium, 20% hard.`,
-
-  exam_paper: (teacher) =>
-    `Exam question paper creator for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
-Generate a comprehensive examination paper with full marks, sections, and questions.`,
-
-  lesson_plan: (teacher) =>
-    `Lesson plan designer for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
-Create a complete lesson plan with objectives, materials, timeline, and assessments.`,
-
-  grading_sheet: (teacher) =>
-    `Grading sheet and marksheet creator for ${teacher?.name || "Teacher"}.
-Format as a clean grading rubric with criteria, weightage, and scoring bands.`,
-
-  teacher_note: (teacher) =>
-    `Explanatory teaching notes creator for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
-Summary of concepts, teaching tips, and student discussion points.`,
-
-  assignment: (teacher) =>
-    `Assignment creator for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}. Generate 10-15 questions.
-
-Format per question:
-Q[N]. <question text> [<marks>]
-Key Point: <1-line expected answer focus>`,
-
-  explanation: (teacher) =>
-    `Classroom content writer for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}.
-
-Structure:
-1. Concept: Define the topic clearly in 2-3 sentences.
-2. Example: Give 1-2 concrete, relatable examples.
-3. Summary: One-sentence takeaway students should remember.`,
-
-  class_planner: (teacher) =>
-    `Lesson planner for ${teacher?.name || "Teacher"} — ${teacher?.subject || "General"}. One period class.
-
-Sections:
-- Learning Objectives (3 max, measurable)
-- Materials Required
-- Time Plan: [0-5 min] Intro | [5-35 min] Activity | [35-45 min] Wrap-up
-- Homework / Reflection Task`
-};
-
-// ---------------- Helpers ----------------
-function _timestamp() {
-  return new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15);
-}
-
-async function _generateFile(intent, prompt, teacher, slug, extra = {}) {
-  try {
-    const systemMsg = SYSTEM_PROMPTS[intent](teacher);
-
-    let userMsg = prompt;
-
-    if (intent === "question_paper" && extra.difficulty) {
-      userMsg += ` Difficulty: ${extra.difficulty}`;
-    }
-
-    if (intent === "class_planner" && extra.duration) {
-      userMsg += ` Duration: ${extra.duration}`;
-    }
-
-    // ✅ 1️⃣ Gemini generates reply
-    const content = await callGemini(systemMsg, userMsg);
-
-    // ✅ 2️⃣ Local Save
-    const fname = `${intent}_${_timestamp()}.txt`;
-    const fpath = path.join(OUTPUT_DIR, fname);
-
-    const fullText =
-`Teacher: ${teacher.name} (${teacher.subject})
-Generated: ${new Date().toISOString()}
-
-${content}
-`;
-
-    fs.writeFileSync(fpath, fullText, "utf-8");
-    logInfo(`[teacherHelper] ${intent} saved locally: ${fpath}`);
-
-    // ✅ 3️⃣ Supabase / Google Drive Upload (Pass bare filename, saveFileToSlug handles directory)
-    const buffer = Buffer.from(fullText, "utf-8");
-
-    await saveFileToSlug(slug, fname, buffer);
-
-    logInfo(`[teacherHelper] ${intent} uploaded to storage: ${fname}`);
-
-    // ✅ 4️⃣ ONLY RETURN SPOKEN CONTENT
-    return content;
-
-  } catch (err) {
-    logError(`[teacherHelper] ${intent} generation error:`, err);
-    throw err;
-  }
-}
-
-// ---------------- Public Handler ----------------
 export async function handleTeacherTask(intent, params, teacher, slug) {
   const prompt = params.prompt || "";
-  const difficulty = params.difficulty || "moderate";
-  const duration = params.duration || "45 minutes";
-  const safeTeacher = teacher || { name: "Teacher", subject: "General" };
+  const teacherContext = teacher ? ` (Teacher: ${teacher.name || "Educator"} - ${teacher.subject || "General"})` : "";
+  const fullPrompt = `${prompt}${teacherContext}`;
 
-  const validIntents = [
-    "question_paper",
-    "exam_paper",
-    "lesson_plan",
-    "grading_sheet",
-    "teacher_note",
-    "assignment",
-    "explanation",
-    "class_planner"
-  ];
+  logInfo(`[TeacherTools] Handling intent: "${intent}" with prompt: "${fullPrompt}"`);
 
-  if (!validIntents.includes(intent)) {
-    throw new Error(`Unknown teacher intent: ${intent}`);
+  try {
+    if (intent === "grading_sheet") {
+      // Marksheets, grading sheets, rubric scores format as real Excel spreadsheets
+      return await createProfessionalExcel(fullPrompt, slug, "grading_sheet");
+    }
+
+    if (["lesson_plan", "exam_paper", "question_paper", "class_planner", "teacher_note", "assignment", "explanation"].includes(intent)) {
+      // Lesson plans, exam papers, syllabus and teacher notes format as clean Word documents (.docx)
+      return await createProfessionalDocx(fullPrompt, slug, intent);
+    }
+
+    // Default fallback to Word doc
+    return await createProfessionalDocx(fullPrompt, slug, intent);
+  } catch (err) {
+    logError(`[TeacherTools] Error handling ${intent}:`, err);
+    throw err;
   }
-
-  return await _generateFile(intent, prompt, safeTeacher, slug, { difficulty, duration });
 }

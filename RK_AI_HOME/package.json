@@ -4,18 +4,31 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node tests/run_tests.js"
   },
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
-    "@huggingface/inference": "^2.7.0",
     "@google/genai": "^0.6.1",
+    "@huggingface/inference": "^2.7.0",
     "@supabase/supabase-js": "^2.39.0",
+    "@xenova/transformers": "^2.17.2",
+    "archiver": "^8.0.0",
+    "axios": "^1.18.1",
     "docx": "^8.5.0",
     "dotenv": "^16.4.5",
+    "duck-duck-scrape": "^2.2.7",
+    "exceljs": "^4.4.0",
     "express": "^4.22.1",
+    "express-ws": "^5.0.2",
+    "fastembed": "^2.1.0",
+    "multer": "^1.4.5-lts.1",
     "node-appwrite": "^21.0.0",
+    "pdf-parse": "^1.1.1",
+    "pdfkit": "^0.20.2",
+    "pptxgenjs": "^4.0.1",
     "uuid": "^9.0.1",
+    "ws": "^8.21.1",
     "yt-search": "^2.13.1"
   },
   "description": "Auto-generated backend project.",
