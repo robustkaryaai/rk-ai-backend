@@ -8,6 +8,7 @@ import { loadChat, appendChat, appendUser, updateLastAI, deleteChatEntry } from 
 import { ensureLimitFile, getLimitsForTier } from "./limitManager.js";
 import { callGemini, callGeminiVision, listGeminiModels } from "./services/gemini.js";
 import { handleIntents } from "./taskHandler.js";
+import { getTaskStatusContext, getRecentTasks } from "./services/taskQueue.js";
 import { cleanupSupabaseFiles, migrateToGoogleDrive, listFilesFromSlug, downloadFileFromSlug, deleteFileFromSlug } from "./services/supabaseClient.js";
 import ytSearch from "yt-search";
 
@@ -256,8 +257,8 @@ Your job is to understand the user's message, classify every requested action in
 ## Response & Reply rules
 
 1. EVERY intent object MUST include a \`reply\` field with a natural, friendly, and spoken response.
-2. For \`chat\` and \`general\`: The \`reply\` must be the COMPLETE and DIRECT conversational answer (1-3 sentences max). Answer the user's question directly and concisely without extra filler. Never say you are an intent router or assistant model; you are RK AI.
-3. For generative intents (\`image\`, \`video\`, \`docx\`, \`ppt\`, etc.): The \`reply\` must be a pleasant immediate confirmation (e.g. "Generating an image of a tree house for you now.", "Creating your presentation on photosynthesis now.").
+2. For \`chat\` and \`general\`: The \`reply\` must be the COMPLETE and DIRECT conversational answer (1-3 sentences max). Answer the user's question directly and concisely without extra filler. Never say you are an intent router or assistant model; you are RK AI. If the user asks about the progress, status, or completion of previously queued tasks or files (e.g., "what's the status of my video?", "did my tasks finish?", "what happened with my docx?"), refer to the Recent Background Tasks & Status provided in the context, and give an accurate, friendly real-time status update.
+3. For generative intents (\`image\`, \`video\`, \`docx\`, \`ppt\`, etc.): The \`reply\` must be a pleasant immediate confirmation (e.g. "Generating an image of a tree house for you now.", "Creating your presentation on photosynthesis now."). When multiple tasks are detected in a single prompt, produce a natural merged queue confirmation (e.g. "I'm queuing those 4 tasks for you. Please give me a moment while I prepare them.").
 4. For \`alarm\`, \`task\`, \`weather\`, \`news\`: Provide the clear natural acknowledgement in \`reply\`.
 5. Return multiple intent objects when the user requests multiple distinct actions. Preserve their original order.
 6. For alarms, extract the requested time into \`time\`, formatted as \`h:mm AM/PM\` or \`HH:mm\`. Resolve relative times using the current time provided in context. Never invent a time.
@@ -658,9 +659,10 @@ async function handleTextRequest(req, res, slug, text, device) {
       `User: ${entry.user || entry.prompt || ""}\nAssistant: ${entry.ai || entry.reply || ""}`
     );
 
-    // Prepend current IST time so Gemini can resolve relative times ("in 30 minutes", "at 7 PM")
+    // Prepend current IST time and recent task status so Gemini can resolve relative times and task queries
     const nowIST = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true, weekday: "long", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    const textWithContext = `[Current time: ${nowIST} IST]\n${text}`;
+    const taskContext = getTaskStatusContext(normSlug);
+    const textWithContext = `[Current time: ${nowIST} IST]${taskContext}\nUser Request: ${text}`;
 
     const rawIntents = await callGemini(
       SYSTEM_PROMPT,
@@ -691,9 +693,15 @@ async function handleTextRequest(req, res, slug, text, device) {
     let song_url = null;
     const isMusic = intents.some(i => i?.intent === "music");
 
-    // If multiple intents were returned, respond with a concise queue confirmation
+    // If multiple intents were returned, prefer Gemini's organic queue reply if provided, else use natural queue reply
     if (intents.length > 1) {
-      finalReply = `I'm queuing ${intents.length} tasks for you. Please wait a moment while I create them.`;
+      const geminiQueueReply = intents[0]?.reply;
+      // Check if Gemini already produced a consolidated queue confirmation
+      if (geminiQueueReply && (geminiQueueReply.toLowerCase().includes("queue") || geminiQueueReply.toLowerCase().includes("tasks") || geminiQueueReply.toLowerCase().includes("creating") || geminiQueueReply.toLowerCase().includes("working on"))) {
+        finalReply = geminiQueueReply;
+      } else {
+        finalReply = `I'm queuing ${intents.length} tasks for you. Please wait a moment while I create them.`;
+      }
     } else {
       // Strategy: Priority-based selection
       const priorityIntents = ["music", "announcement", "chat", "general", "weather", "news"];

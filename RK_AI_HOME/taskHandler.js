@@ -12,6 +12,7 @@ import { callGemini } from "./services/gemini.js";
 import { getSlugStorageUsed } from "./services/supabaseClient.js";
 import { checkAndConsume } from "./limitManager.js";
 import { getUserPlanBySlug, db } from "./services/appwriteClient.js";
+import { enqueueTask, completeTask, failTask } from "./services/taskQueue.js";
 
 /* ---------------- MCU PASS THROUGH ---------------- */
 const PASS_THROUGH = [
@@ -276,13 +277,18 @@ export async function handleIntents(slug, intents, context = {}) {
         }
 
         const statusMsg = buildTaskReply(intent, parameters, task.reply);
+        const taskId = enqueueTask(slug, "image", userPrompt);
+        task.taskId = taskId;
         await appendChat(slug, userPrompt, statusMsg);
         
         // 🚀 NON-BLOCKING BACKGROUND EXECUTION
         // Do not await! Respond to Pi in ~1s so HTTP request never times out,
         // while DeAPI generates & uploads the image in the background.
-        generateImage(userPrompt, slug, tierName, storageLimitMB).catch(err => {
+        generateImage(userPrompt, slug, tierName, storageLimitMB).then(res => {
+          completeTask(slug, taskId, res?.image || "image.png");
+        }).catch(err => {
           console.error(`[Background-Image-Error] ${slug}:`, err);
+          failTask(slug, taskId, err.message);
         });
 
         results.push(statusMsg);
@@ -307,11 +313,16 @@ export async function handleIntents(slug, intents, context = {}) {
         }
 
         const reply = buildTaskReply(intent, parameters, task.reply);
+        const taskId = enqueueTask(slug, "video", userPrompt);
+        task.taskId = taskId;
         await appendChat(slug, userPrompt, reply);
         
         // 🚀 Non-blocking video generation
-        generateVideo(userPrompt, slug, tierName, storageLimitMB).catch(err => {
+        generateVideo(userPrompt, slug, tierName, storageLimitMB).then(res => {
+          completeTask(slug, taskId, res?.video || "video.mp4");
+        }).catch(err => {
           console.error(`[Background-Video-Error] ${slug}:`, err);
+          failTask(slug, taskId, err.message);
         });
 
         results.push(reply);
@@ -321,11 +332,16 @@ export async function handleIntents(slug, intents, context = {}) {
       /* ---------------- DOCX ---------------- */
       if (intent === "docx") {
         const reply = buildTaskReply(intent, parameters, task.reply);
+        const taskId = enqueueTask(slug, "docx", userPrompt);
+        task.taskId = taskId;
         await appendChat(slug, userPrompt, reply);
         
         // 🚀 Non-blocking docx creation
-        createDocx(userPrompt, slug, tierName, storageLimitMB).catch(err => {
+        createDocx(userPrompt, slug, tierName, storageLimitMB).then(res => {
+          completeTask(slug, taskId, res?.docx || "document.docx");
+        }).catch(err => {
           console.error(`[Background-Docx-Error] ${slug}:`, err);
+          failTask(slug, taskId, err.message);
         });
 
         results.push(reply);
@@ -343,6 +359,8 @@ export async function handleIntents(slug, intents, context = {}) {
         }
 
         const reply = buildTaskReply(intent, parameters, task.reply);
+        const taskId = enqueueTask(slug, "ppt", userPrompt);
+        task.taskId = taskId;
         await appendChat(slug, userPrompt, reply);
 
         // 🚀 Non-blocking PPT creation
@@ -351,8 +369,10 @@ export async function handleIntents(slug, intents, context = {}) {
           if (slides > 0) {
             await checkAndConsume(slug, tierNum, "ppt_slides", slides).catch(() => {});
           }
+          completeTask(slug, taskId, resp?.ppt || "presentation.pptx");
         }).catch(err => {
           console.error(`[Background-PPT-Error] ${slug}:`, err);
+          failTask(slug, taskId, err.message);
         });
 
         results.push(reply);
@@ -373,9 +393,14 @@ export async function handleIntents(slug, intents, context = {}) {
 
       /* ---------------- STUDENT TASKS ---------------- */
       if (["note", "planner", "timetable", "task", "assignment"].includes(intent)) {
+        const taskId = enqueueTask(slug, intent, userPrompt);
+        task.taskId = taskId;
         // 🚀 NON-BLOCKING: Generate and save student files in background so HTTP never times out!
-        handleStudentTask(intent, parameters, slug).catch(err => {
+        handleStudentTask(intent, parameters, slug).then(res => {
+          completeTask(slug, taskId, res?.file || `${intent}.json`);
+        }).catch(err => {
           console.error(`[Background-Student-Task-Error] ${intent}:`, err);
+          failTask(slug, taskId, err.message);
         });
 
         const reply = buildTaskReply(intent, parameters, task.reply);
@@ -386,9 +411,14 @@ export async function handleIntents(slug, intents, context = {}) {
 
       /* ---------------- TEACHER TASKS ---------------- */
       if (["lesson_plan", "exam_paper", "grading_sheet", "class_planner", "teacher_note", "question_paper"].includes(intent)) {
+        const taskId = enqueueTask(slug, intent, userPrompt);
+        task.taskId = taskId;
         // 🚀 NON-BLOCKING: Generate and upload teacher files in background so HTTP returns instantly!
-        handleTeacherTask(intent, parameters, context.teacher, slug).catch(err => {
+        handleTeacherTask(intent, parameters, context.teacher, slug).then(res => {
+          completeTask(slug, taskId, res?.file || `${intent}.docx`);
+        }).catch(err => {
           console.error(`[Background-Teacher-Task-Error] ${intent}:`, err);
+          failTask(slug, taskId, err.message);
         });
 
         const reply = buildTaskReply(intent, parameters, task.reply);
