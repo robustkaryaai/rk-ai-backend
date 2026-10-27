@@ -1679,7 +1679,8 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
             });
             const rawUrl = dec.toString(CryptoJS.enc.Utf8);
             if (rawUrl && rawUrl.startsWith("http")) {
-              const hqUrl = rawUrl.replace("_96.", "_320.").replace(".mp4", ".mp3");
+              // Saavn stores audio files as .mp4 container (AAC audio codec), replacing with .mp3 caused 404!
+              const hqUrl = rawUrl.replace("_96.", "_320.");
               const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
               console.log(`⚡ [Music-Resolve-Fast] JioSaavn CDN resolved "${top.song}" in ${elapsed}s!`);
               return res.json({
