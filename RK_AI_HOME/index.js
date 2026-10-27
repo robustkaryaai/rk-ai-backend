@@ -1631,12 +1631,9 @@ homeRouter.post("/device/:slug/update-status", async (req, res) => {
 });
 
 
-// In-memory cache for YouTube Data API searches (query -> { title, vid_id, link, stream_url })
-const youtubeSearchCache = new Map();
-
 // ⚡ High-speed server-side music stream resolution for Pi Zero W:
 // Priority:
-// 1. YouTube Data API v3 (if YOUTUBE_API_KEY/YT_API_KEY configured) with in-memory caching
+// 1. YouTube Data API v3 (if YOUTUBE_API_KEY/YT_API_KEY configured)
 // 2. Ultra-fast direct JioSaavn CDN (<0.25s, no bot-blocks, crystal clear 320kbps MP3)
 // 3. Resilient yt-search scraper fallback
 homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
@@ -1648,27 +1645,12 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
 
     deviceLastSeen.set(slug, Date.now());
 
-    // Clean extraneous filler phrases like "play", "on youtube", "song"
+    // Clean extraneous filler phrases like "play", "on youtube", "from youtube"
     const cleanQuery = rawQuery
       .replace(/\b(play|on youtube|from youtube|on spotify|from spotify)\b/gi, "")
-      .replace(/\b(song|track)\b$/gi, "")
       .trim() || rawQuery;
 
     console.log(`[Music-Resolve-Fast] Resolving stream for: "${cleanQuery}" (device: ${slug})...`);
-
-    // ── Check Cache First ──
-    const cacheKey = cleanQuery.toLowerCase();
-    if (youtubeSearchCache.has(cacheKey)) {
-      const cached = youtubeSearchCache.get(cacheKey);
-      const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-      console.log(`⚡ [Music-Resolve-Fast] Cache hit for "${cached.title}" in ${elapsed}s!`);
-      return res.json({
-        ok: true,
-        source: "cache",
-        ...cached,
-        elapsed_seconds: Number(elapsed)
-      });
-    }
 
     // ── Strategy 1: Official YouTube Data API v3 (Ultra-Reliable, Google Cloud Key) ──
     const ytApiKey = process.env.YOUTUBE_API_KEY || process.env.YT_API_KEY;
@@ -1694,13 +1676,6 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
                 link: videoUrl,
                 stream_url: videoUrl
               };
-              // Cache query result
-              youtubeSearchCache.set(cacheKey, resultObj);
-              if (youtubeSearchCache.size > 500) {
-                const firstKey = youtubeSearchCache.keys().next().value;
-                youtubeSearchCache.delete(firstKey);
-              }
-
               return res.json({
                 ok: true,
                 source: "youtube_api_v3",
@@ -1787,7 +1762,6 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
         link: chosenVideo.url,
         stream_url: chosenVideo.url
       };
-      youtubeSearchCache.set(cacheKey, resultObj);
 
       return res.json({
         ok: true,
