@@ -1657,32 +1657,37 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
     if (ytApiKey) {
       try {
         console.log(`[Music-Resolve-Fast] Querying YouTube Data API v3 for: "${cleanQuery}"...`);
-        const ytApiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(cleanQuery)}&key=${ytApiKey}`;
+        // Filter out geo-locked/unavailable videos by enforcing regionCode=IN, videoSyndicated=true, videoEmbeddable=true
+        const ytApiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&regionCode=IN&videoEmbeddable=true&videoSyndicated=true&maxResults=5&q=${encodeURIComponent(cleanQuery)}&key=${ytApiKey}`;
         const ytResp = await fetch(ytApiUrl, { signal: AbortSignal.timeout(4000) });
         if (ytResp.ok) {
           const ytData = await ytResp.json();
-          if (ytData.items && ytData.items.length > 0) {
-            const item = ytData.items[0];
-            const videoId = item.id?.videoId;
-            const title = item.snippet?.title || cleanQuery;
-            if (videoId) {
-              const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-              const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-              console.log(`⚡ [Music-Resolve-Fast] YouTube Data API resolved "${title}" (${videoId}) in ${elapsed}s!`);
-              
-              const resultObj = {
-                title,
-                vid_id: videoId,
-                link: videoUrl,
-                stream_url: videoUrl
-              };
-              return res.json({
-                ok: true,
-                source: "youtube_api_v3",
-                ...resultObj,
-                elapsed_seconds: Number(elapsed)
-              });
-            }
+          const items = ytData.items || [];
+          // Filter out explicitly geo-blocked titles (e.g. UK-only or broadcast dubs)
+          const validItem = items.find(it => {
+            const titleLower = (it.snippet?.title || "").toLowerCase();
+            return !titleLower.startsWith("uk:") && !titleLower.includes("[full episode]");
+          }) || items[0];
+
+          if (validItem && validItem.id?.videoId) {
+            const videoId = validItem.id.videoId;
+            const title = validItem.snippet?.title || cleanQuery;
+            const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+            const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+            console.log(`⚡ [Music-Resolve-Fast] YouTube Data API resolved "${title}" (${videoId}) in ${elapsed}s!`);
+            
+            const resultObj = {
+              title,
+              vid_id: videoId,
+              link: videoUrl,
+              stream_url: videoUrl
+            };
+            return res.json({
+              ok: true,
+              source: "youtube_api_v3",
+              ...resultObj,
+              elapsed_seconds: Number(elapsed)
+            });
           }
         } else {
           const errText = await ytResp.text().catch(() => "");
