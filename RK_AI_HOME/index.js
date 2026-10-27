@@ -1,3 +1,4 @@
+import ytdl from '@distube/ytdl-core';
 import express from "express";
 import { HfInference } from "@huggingface/inference";
 import { GoogleGenAI } from "@google/genai";
@@ -1647,14 +1648,12 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
       return res.status(404).json({ error: "No video found" });
     }
 
-    // 2. Resolve audio stream URL using ytdl
+    // 2. Instant stream extraction with pre-imported ytdl
     let streamUrl = null;
     try {
-      const ytdl = (await import("@distube/ytdl-core")).default;
       const info = await ytdl.getInfo(video.url);
       const audioFormats = ytdl.filterFormats(info.formats, "audioonly");
       if (audioFormats && audioFormats.length > 0) {
-        // Pick best audio format with valid URL
         streamUrl = audioFormats[0].url;
       }
     } catch (e) {
@@ -1674,6 +1673,89 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
     });
   } catch (err) {
     console.error("[Music-Resolve-Fast] Error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
+// 🟢 Server-side Spotify Resolve: Searches Spotify for official metadata/URI or plays on connected device
+homeRouter.post("/device/:slug/spotify/resolve", async (req, res) => {
+  const t0 = Date.now();
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const query = String(req.body?.query || req.body?.prompt || "").trim();
+    if (!query) return res.status(400).json({ error: "query required" });
+
+    deviceLastSeen.set(slug, Date.now());
+
+    // Check device Spotify credentials from Appwrite
+    let accessToken = null;
+    try {
+      const device = await getUserPlanBySlug(slug);
+      if (device && device.spotifyAccessToken && device.spotifyConnected === "true") {
+        accessToken = device.spotifyAccessToken;
+      }
+    } catch (e) {
+      console.log(`[Spotify-Resolve] Appwrite token lookup notice: ${e.message}`);
+    }
+
+    // 1. If user has Spotify connected, trigger Spotify Connect or return track info
+    if (accessToken) {
+      try {
+        const spotifySearch = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (spotifySearch.ok) {
+          const sData = await spotifySearch.json();
+          const track = sData?.tracks?.items?.[0];
+          if (track) {
+            // Trigger Spotify Connect play if active
+            const playResp = await fetch("https://api.spotify.com/v1/me/player/play", {
+              method: "PUT",
+              headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ uris: [track.uri] })
+            });
+            const connectOk = playResp.status === 204 || playResp.status === 200;
+            return res.json({
+              ok: true,
+              type: "spotify_connect",
+              connect_active: connectOk,
+              title: `${track.name} - ${track.artists?.[0]?.name || ""}`,
+              uri: track.uri,
+              elapsed_seconds: Number(((Date.now() - t0) / 1000).toFixed(2))
+            });
+          }
+        }
+      } catch (err) {
+        console.log(`[Spotify-Resolve] Direct Spotify Web API error: ${err.message}`);
+      }
+    }
+
+    // 2. High-speed Bridge: If Spotify Connect is not active, resolve top audio stream seamlessly via ytSearch
+    const search = await ytSearch(query);
+    const video = search?.videos?.[0];
+    if (!video) return res.status(404).json({ error: "No track found" });
+
+    let streamUrl = null;
+    try {
+      const info = await ytdl.getInfo(video.url);
+      const audioFormats = ytdl.filterFormats(info.formats, "audioonly");
+      if (audioFormats && audioFormats.length > 0) {
+        streamUrl = audioFormats[0].url;
+      }
+    } catch (e) {}
+
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+    return res.json({
+      ok: true,
+      type: "stream_bridge",
+      title: video.title,
+      vid_id: video.videoId,
+      link: video.url,
+      stream_url: streamUrl || video.url,
+      elapsed_seconds: Number(elapsed)
+    });
+  } catch (err) {
+    console.error("[Spotify-Resolve] Error:", err);
     return res.status(500).json({ error: String(err) });
   }
 });
