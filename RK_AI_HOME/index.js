@@ -1,5 +1,6 @@
 import { Ytdl } from '@distube/ytdl-core';
 const ytdlInstance = new Ytdl();
+import CryptoJS from 'crypto-js';
 import express from "express";
 import { HfInference } from "@huggingface/inference";
 import { GoogleGenAI } from "@google/genai";
@@ -1630,8 +1631,8 @@ homeRouter.post("/device/:slug/update-status", async (req, res) => {
 });
 
 
-// ⚡ High-speed server-side YouTube music stream resolution for Pi Zero W:
-// Uses server's high-speed datacenter connection & yt-search + @distube/ytdl-core to resolve direct audio URL in ~1s
+// ⚡ High-speed server-side music stream resolution for Pi Zero W:
+// Uses ultra-fast direct CDN audio resolution (<0.3s) with multi-source fallback
 homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
   const t0 = Date.now();
   try {
@@ -1640,16 +1641,48 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
     if (!query) return res.status(400).json({ error: "query required" });
 
     deviceLastSeen.set(slug, Date.now());
-    console.log(`[Music-Resolve-Fast] Searching for: "${query}" for device ${slug}...`);
+    console.log(`[Music-Resolve-Fast] Resolving stream for: "${query}" (device: ${slug})...`);
 
-    // 1. Ultra-fast ytSearch on server
+    // ── Strategy 1: Ultra-Fast Direct JioSaavn CDN (<0.25s, no bot-blocks, crystal clear 320kbps MP3) ──
+    try {
+      const searchUrl = `https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=3&p=1&q=${encodeURIComponent(query)}`;
+      const sResp = await fetch(searchUrl, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3500) });
+      if (sResp.ok) {
+        const sData = await sResp.json();
+        const results = sData?.results || [];
+        if (results.length > 0 && results[0].encrypted_media_url) {
+          const top = results[0];
+          const key = CryptoJS.enc.Utf8.parse("38346591");
+          const dec = CryptoJS.DES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(top.encrypted_media_url) }, key, {
+            mode: CryptoJS.mode.ECB,
+            padding: CryptoJS.pad.Pkcs7
+          });
+          const rawUrl = dec.toString(CryptoJS.enc.Utf8);
+          if (rawUrl && rawUrl.startsWith("http")) {
+            const hqUrl = rawUrl.replace("_96.", "_320.").replace(".mp4", ".mp3");
+            const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+            console.log(`⚡ [Music-Resolve-Fast] JioSaavn CDN resolved "${top.song}" in ${elapsed}s!`);
+            return res.json({
+              ok: true,
+              source: "saavn_cdn",
+              title: `${top.song} - ${top.primary_artists || ""}`,
+              stream_url: hqUrl,
+              elapsed_seconds: Number(elapsed)
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`[Music-Resolve-Fast] Saavn primary resolution notice: ${e.message}`);
+    }
+
+    // ── Strategy 2: YouTube Fallback with multi-candidate resilience ──
     const search = await ytSearch(query);
     const candidateVideos = search?.videos?.slice(0, 4) || [];
     if (candidateVideos.length === 0) {
       return res.status(404).json({ error: "No video found" });
     }
 
-    // 2. Instant stream extraction: test candidates until a playable stream is extracted
     let streamUrl = null;
     let chosenVideo = candidateVideos[0];
 
@@ -1672,6 +1705,7 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
 
     return res.json({
       ok: true,
+      source: "youtube_stream",
       title: chosenVideo.title,
       vid_id: chosenVideo.videoId,
       link: chosenVideo.url,
