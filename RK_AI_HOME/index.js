@@ -1644,32 +1644,38 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
 
     // 1. Ultra-fast ytSearch on server
     const search = await ytSearch(query);
-    const video = search?.videos?.[0];
-    if (!video) {
+    const candidateVideos = search?.videos?.slice(0, 4) || [];
+    if (candidateVideos.length === 0) {
       return res.status(404).json({ error: "No video found" });
     }
 
-    // 2. Instant stream extraction with pre-imported ytdlInstance
+    // 2. Instant stream extraction: test candidates until a playable stream is extracted
     let streamUrl = null;
-    try {
-      const info = await ytdlInstance.getInfo(video.url);
-      const audioFormats = info.formats.filter(f => !f.hasVideo && f.hasAudio);
-      if (audioFormats && audioFormats.length > 0) {
-        streamUrl = audioFormats[0].url;
+    let chosenVideo = candidateVideos[0];
+
+    for (const v of candidateVideos) {
+      try {
+        const info = await ytdlInstance.getInfo(v.url);
+        const audioFormats = info.formats.filter(f => !f.hasVideo && f.hasAudio);
+        if (audioFormats && audioFormats.length > 0 && audioFormats[0].url) {
+          streamUrl = audioFormats[0].url;
+          chosenVideo = v;
+          break;
+        }
+      } catch (e) {
+        console.log(`[Music-Resolve-Fast] Candidate ${v.videoId} notice: ${e.message}`);
       }
-    } catch (e) {
-      console.log(`[Music-Resolve-Fast] ytdl stream extraction fallback: ${e.message}`);
     }
 
     const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-    console.log(`[Music-Resolve-Fast] Resolved "${video.title}" in ${elapsed}s`);
+    console.log(`[Music-Resolve-Fast] Resolved "${chosenVideo.title}" in ${elapsed}s`);
 
     return res.json({
       ok: true,
-      title: video.title,
-      vid_id: video.videoId,
-      link: video.url,
-      stream_url: streamUrl || video.url,
+      title: chosenVideo.title,
+      vid_id: chosenVideo.videoId,
+      link: chosenVideo.url,
+      stream_url: streamUrl || chosenVideo.url,
       elapsed_seconds: Number(elapsed)
     });
   } catch (err) {
