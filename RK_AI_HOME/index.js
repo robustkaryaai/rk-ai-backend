@@ -691,25 +691,35 @@ async function handleTextRequest(req, res, slug, text, device) {
     let song_url = null;
     const isMusic = intents.some(i => i?.intent === "music");
 
-    // Strategy: Priority-based selection
-    const priorityIntents = ["music", "announcement", "chat", "general", "weather", "news"];
+    // If multiple intents were returned and each has its own reply, combine them into one seamless reply
+    const allReplies = intents
+      .map(i => i?.reply)
+      .filter(r => typeof r === "string" && r.trim().length > 0);
 
-    // Find first matching high-priority intent result
-    for (const pIntent of priorityIntents) {
-      const idx = intents.findIndex(i => i?.intent === pIntent);
-      if (idx !== -1 && results[idx]) {
-        const r = results[idx];
-        finalReply = typeof r === "string" ? r : (r?.reply || r?.text || "");
-        if (pIntent === "music") song_url = r?.song_url || null;
-        if (finalReply) break;
+    if (allReplies.length > 1) {
+      // Combine into one cohesive spoken response instead of separate disconnected replies
+      finalReply = allReplies.join(" Also, ");
+    } else {
+      // Strategy: Priority-based selection
+      const priorityIntents = ["music", "announcement", "chat", "general", "weather", "news"];
+
+      // Find first matching high-priority intent result
+      for (const pIntent of priorityIntents) {
+        const idx = intents.findIndex(i => i?.intent === pIntent);
+        if (idx !== -1 && results[idx]) {
+          const r = results[idx];
+          finalReply = typeof r === "string" ? r : (r?.reply || r?.text || "");
+          if (pIntent === "music") song_url = r?.song_url || null;
+          if (finalReply) break;
+        }
       }
-    }
 
-    // Fallback: Just pick the first non-empty result
-    if (!finalReply) {
-      for (const r of results) {
-        finalReply = typeof r === "string" ? r : (r?.reply || r?.text || "");
-        if (finalReply) break;
+      // Fallback: Just pick the first non-empty result
+      if (!finalReply) {
+        for (const r of results) {
+          finalReply = typeof r === "string" ? r : (r?.reply || r?.text || "");
+          if (finalReply) break;
+        }
       }
     }
 

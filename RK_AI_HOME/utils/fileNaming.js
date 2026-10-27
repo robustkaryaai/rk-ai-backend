@@ -34,7 +34,7 @@ Rules:
   "financial report spreadsheet for quarterly sales" -> "quarterly-sales-report"
 Output ONLY the kebab-case filename slug and nothing else.`;
 
-    const result = await callGemini(systemPrompt, [], String(prompt || type), 2, null, "gemini-2.5-flash-lite", slug);
+    const result = await callGemini(systemPrompt, [], String(prompt || type), 2, null, "gemini-3.5-flash-lite", slug);
     if (result && typeof result === "string" && !result.toLowerCase().includes("trouble connecting") && !result.toLowerCase().includes("please try again")) {
       const sanitized = result.trim()
         .toLowerCase()
