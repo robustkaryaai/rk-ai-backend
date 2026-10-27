@@ -1645,30 +1645,51 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
 
     // ── Strategy 1: Ultra-Fast Direct JioSaavn CDN (<0.25s, no bot-blocks, crystal clear 320kbps MP3) ──
     try {
-      const searchUrl = `https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=3&p=1&q=${encodeURIComponent(query)}`;
+      const searchUrl = `https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=12&p=1&q=${encodeURIComponent(query)}`;
       const sResp = await fetch(searchUrl, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3500) });
       if (sResp.ok) {
         const sData = await sResp.json();
         const results = sData?.results || [];
-        if (results.length > 0 && results[0].encrypted_media_url) {
-          const top = results[0];
-          const key = CryptoJS.enc.Utf8.parse("38346591");
-          const dec = CryptoJS.DES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(top.encrypted_media_url) }, key, {
-            mode: CryptoJS.mode.ECB,
-            padding: CryptoJS.pad.Pkcs7
+        if (results.length > 0) {
+          // Smart Relevance Ranking: pick exact song title and penalize ambient / study / lofi filler
+          const queryWords = query.toLowerCase().split(/\s+/).filter(w => !["song", "the", "a", "an", "on", "play"].includes(w));
+          const scored = results.map(r => {
+            const songLower = (r.song || "").toLowerCase();
+            const artistLower = (r.primary_artists || "").toLowerCase();
+            const albumLower = (r.album || "").toLowerCase();
+            let score = 0;
+            if (songLower.includes("study") || songLower.includes("lofi") || songLower.includes("chill") || albumLower.includes("lofi") || artistLower.includes("lofi")) {
+              score -= 5;
+            }
+            for (const w of queryWords) {
+              if (songLower.includes(w)) score += 4;
+              else if (albumLower.includes(w)) score += 2;
+              else if (artistLower.includes(w)) score += 1;
+            }
+            return { ...r, score };
           });
-          const rawUrl = dec.toString(CryptoJS.enc.Utf8);
-          if (rawUrl && rawUrl.startsWith("http")) {
-            const hqUrl = rawUrl.replace("_96.", "_320.").replace(".mp4", ".mp3");
-            const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-            console.log(`⚡ [Music-Resolve-Fast] JioSaavn CDN resolved "${top.song}" in ${elapsed}s!`);
-            return res.json({
-              ok: true,
-              source: "saavn_cdn",
-              title: `${top.song} - ${top.primary_artists || ""}`,
-              stream_url: hqUrl,
-              elapsed_seconds: Number(elapsed)
+          scored.sort((a, b) => b.score - a.score);
+
+          const top = scored.find(s => s.encrypted_media_url) || scored[0];
+          if (top && top.encrypted_media_url) {
+            const key = CryptoJS.enc.Utf8.parse("38346591");
+            const dec = CryptoJS.DES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(top.encrypted_media_url) }, key, {
+              mode: CryptoJS.mode.ECB,
+              padding: CryptoJS.pad.Pkcs7
             });
+            const rawUrl = dec.toString(CryptoJS.enc.Utf8);
+            if (rawUrl && rawUrl.startsWith("http")) {
+              const hqUrl = rawUrl.replace("_96.", "_320.").replace(".mp4", ".mp3");
+              const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+              console.log(`⚡ [Music-Resolve-Fast] JioSaavn CDN resolved "${top.song}" in ${elapsed}s!`);
+              return res.json({
+                ok: true,
+                source: "saavn_cdn",
+                title: `${top.song} - ${top.primary_artists || ""}`,
+                stream_url: hqUrl,
+                elapsed_seconds: Number(elapsed)
+              });
+            }
           }
         }
       }
