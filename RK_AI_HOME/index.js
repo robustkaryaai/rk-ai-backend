@@ -974,7 +974,8 @@ homeRouter.get("/device/:slug/settings", async (req, res) => {
       greetingPhrase: device.greetingPhrase || "Radhe Radhe",
       wakeWords: device.wakeWords || null,
       ttsConfig: meta.ttsConfig || device.ttsConfig || null,
-      voiceVolume: meta.voiceVolume !== undefined ? meta.voiceVolume : (device.voiceVolume !== undefined ? Number(device.voiceVolume) : 70),
+      voiceVolume: meta.voiceVolume !== undefined ? meta.voiceVolume : (device.vol !== undefined ? Number(device.vol) : (device.voiceVolume !== undefined ? Number(device.voiceVolume) : 70)),
+      vol: device.vol !== undefined ? Number(device.vol) : (meta.voiceVolume !== undefined ? meta.voiceVolume : (device.voiceVolume !== undefined ? Number(device.voiceVolume) : 70)),
       nightProtocolEnabled: meta.nightProtocolEnabled ?? true,
       musicDownloadEnabled: device.musicDownloadEnabled ?? device.music_download_enabled ?? device.downloadMusic ?? false,
       smart_devices: device.smart_devices || device.smartDevices || [],
@@ -1161,10 +1162,12 @@ homeRouter.post("/device/:slug/settings", async (req, res) => {
       wakeWordsChanged = true;
     }
 
-    if (settings.voiceVolume !== undefined) {
-      const vol = Math.max(0, Math.min(100, Number(settings.voiceVolume)));
-      wakeWordsBlob.meta.voiceVolume = vol;
+    const targetVolume = settings.vol !== undefined ? settings.vol : settings.voiceVolume;
+    if (targetVolume !== undefined) {
+      const volNum = Math.max(0, Math.min(100, Number(targetVolume)));
+      wakeWordsBlob.meta.voiceVolume = volNum;
       wakeWordsChanged = true;
+      updateData.vol = volNum;
     }
 
     if (settings.ttsConfig !== undefined) {
@@ -2061,6 +2064,18 @@ homeRouter.post("/device/:slug/command", async (req, res) => {
             }
           }
         } catch (e) { }
+      }
+      else if (command_type === "volume") {
+        const volVal = payload.volume !== undefined ? Number(payload.volume) : (payload.level !== undefined ? Number(payload.level) : null);
+        if (volVal !== null && !isNaN(volVal)) {
+          const safeVol = Math.max(0, Math.min(100, volVal));
+          await db.updateDocument(
+            process.env.APPWRITE_DB_ID,
+            process.env.APPWRITE_DEVICES_COLLECTION || "devices",
+            device.$id,
+            { vol: safeVol }
+          ).catch(e => console.error("[Command Uplink] Failed to update vol attribute:", e.message));
+        }
       }
     } catch (syncErr) {
       console.error("[Command Uplink] Failed to auto-sync alarm/schedule to Appwrite:", syncErr);
