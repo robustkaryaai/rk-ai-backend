@@ -1627,6 +1627,57 @@ homeRouter.post("/device/:slug/update-status", async (req, res) => {
   }
 });
 
+
+// ⚡ High-speed server-side YouTube music stream resolution for Pi Zero W:
+// Uses server's high-speed datacenter connection & yt-search + @distube/ytdl-core to resolve direct audio URL in ~1s
+homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
+  const t0 = Date.now();
+  try {
+    const slug = normalizeSlug(req.params.slug);
+    const query = String(req.body?.query || req.body?.prompt || "").trim();
+    if (!query) return res.status(400).json({ error: "query required" });
+
+    deviceLastSeen.set(slug, Date.now());
+    console.log(`[Music-Resolve-Fast] Searching for: "${query}" for device ${slug}...`);
+
+    // 1. Ultra-fast ytSearch on server
+    const search = await ytSearch(query);
+    const video = search?.videos?.[0];
+    if (!video) {
+      return res.status(404).json({ error: "No video found" });
+    }
+
+    // 2. Resolve audio stream URL using ytdl
+    let streamUrl = null;
+    try {
+      const ytdl = (await import("@distube/ytdl-core")).default;
+      const info = await ytdl.getInfo(video.url);
+      const audioFormats = ytdl.filterFormats(info.formats, "audioonly");
+      if (audioFormats && audioFormats.length > 0) {
+        // Pick best audio format with valid URL
+        streamUrl = audioFormats[0].url;
+      }
+    } catch (e) {
+      console.log(`[Music-Resolve-Fast] ytdl stream extraction fallback: ${e.message}`);
+    }
+
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+    console.log(`[Music-Resolve-Fast] Resolved "${video.title}" in ${elapsed}s`);
+
+    return res.json({
+      ok: true,
+      title: video.title,
+      vid_id: video.videoId,
+      link: video.url,
+      stream_url: streamUrl || video.url,
+      elapsed_seconds: Number(elapsed)
+    });
+  } catch (err) {
+    console.error("[Music-Resolve-Fast] Error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
+});
+
 homeRouter.post("/device/:slug/music/recommend", async (req, res) => {
   try {
     const slug = normalizeSlug(req.params.slug);
