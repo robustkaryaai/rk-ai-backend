@@ -1,5 +1,6 @@
 import { Ytdl } from '@distube/ytdl-core';
 const ytdlInstance = new Ytdl();
+import { spawn } from 'child_process';
 import CryptoJS from 'crypto-js';
 import express from "express";
 import { HfInference } from "@huggingface/inference";
@@ -1632,10 +1633,70 @@ homeRouter.post("/device/:slug/update-status", async (req, res) => {
 
 
 // ⚡ High-speed server-side music stream resolution for Pi Zero W:
+// Helper to extract direct audio stream URL on the server (sub-second Ytdl + yt-dlp CLI fallback)
+function getStreamFromYtDlpCli(videoId) {
+  return new Promise((resolve) => {
+    const proc = spawn("yt-dlp", [
+      "--force-ipv4",
+      "-f", "bestaudio[ext=m4a]/bestaudio",
+      "-g",
+      "--no-playlist",
+      "--no-warnings",
+      "--socket-timeout", "6",
+      `https://www.youtube.com/watch?v=${videoId}`
+    ]);
+    let stdout = "";
+    proc.stdout.on("data", d => stdout += d.toString());
+    proc.on("close", () => {
+      const url = stdout.trim().split("\n")[0].trim();
+      resolve(url && url.startsWith("http") ? url : null);
+    });
+    proc.on("error", () => resolve(null));
+  });
+}
+
+async function extractDirectAudioStream(videoId) {
+  if (!videoId) return null;
+  // Step 1: Sub-second Ytdl instance
+  try {
+    const info = await ytdlInstance.getInfo(`https://www.youtube.com/watch?v=${videoId}`);
+    const audioFormats = (info.formats || []).filter(f => f.hasAudio && !f.hasVideo);
+    if (audioFormats.length > 0) {
+      const best = audioFormats.sort((a,b) => (b.audioBitrate || 0) - (a.audioBitrate || 0))[0];
+      if (best?.url) {
+        return {
+          stream_url: best.url,
+          title: info.videoDetails?.title,
+          bitrate: best.audioBitrate,
+          container: best.container,
+          source_extractor: "ytdl_core"
+        };
+      }
+    }
+  } catch (e) {
+    // Challenge or format issue, fallback to CLI
+  }
+
+  // Step 2: Server yt-dlp CLI fallback
+  try {
+    const cliUrl = await getStreamFromYtDlpCli(videoId);
+    if (cliUrl) {
+      return {
+        stream_url: cliUrl,
+        source_extractor: "yt_dlp_cli"
+      };
+    }
+  } catch (e) {
+    // CLI failed
+  }
+
+  return null;
+}
+
 // Priority:
-// 1. YouTube Data API v3 (if YOUTUBE_API_KEY/YT_API_KEY configured)
+// 1. YouTube Data API v3 + Direct Cloud Audio Extraction (<1.5s total)
 // 2. Ultra-fast direct JioSaavn CDN (<0.25s, no bot-blocks, crystal clear 320kbps MP3)
-// 3. Resilient yt-search scraper fallback
+// 3. Parallel yt-search + Direct Cloud Audio Extraction fallback
 homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
   const t0 = Date.now();
   try {
@@ -1665,9 +1726,9 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
           const items = ytData.items || [];
           const videoIds = items.map(it => it.id?.videoId).filter(Boolean);
 
-          let chosenItem = null;
           if (videoIds.length > 0) {
             // Check contentDetails to strictly filter out region restrictions
+            let candidateIds = [...videoIds];
             try {
               const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,status&id=${videoIds.join(",")}&key=${ytApiKey}`;
               const dResp = await fetch(detailsUrl, { signal: AbortSignal.timeout(3000) });
@@ -1675,7 +1736,7 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
                 const dData = await dResp.json();
                 const videoDetailsMap = new Map((dData.items || []).map(v => [v.id, v]));
 
-                for (const it of items) {
+                candidateIds = items.filter(it => {
                   const vId = it.id?.videoId;
                   const details = videoDetailsMap.get(vId);
                   const rr = details?.contentDetails?.regionRestriction;
@@ -1683,49 +1744,52 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
                   const allowed = rr?.allowed || null;
                   const embeddable = details?.status?.embeddable !== false;
 
-                  // Must be playable in India ('IN') and not blocked in India
-                  if (blocked.includes("IN")) continue;
-                  if (allowed && !allowed.includes("IN")) continue;
-                  if (!embeddable) continue;
+                  if (blocked.includes("IN")) return false;
+                  if (allowed && !allowed.includes("IN")) return false;
+                  if (!embeddable) return false;
 
                   const titleLower = (it.snippet?.title || "").toLowerCase();
-                  if (titleLower.startsWith("uk:") || titleLower.includes("[full episode]")) continue;
-
-                  chosenItem = it;
-                  break;
-                }
+                  if (titleLower.startsWith("uk:") || titleLower.includes("[full episode]")) return false;
+                  return true;
+                }).map(it => it.id.videoId);
               }
             } catch (e) {
               console.log(`[Music-Resolve-Fast] Region details check notice: ${e.message}`);
             }
-          }
 
-          if (!chosenItem && items.length > 0) {
-            chosenItem = items.find(it => {
-              const t = (it.snippet?.title || "").toLowerCase();
-              return !t.startsWith("uk:") && !t.includes("[full episode]");
-            }) || items[0];
-          }
+            if (candidateIds.length === 0) {
+              candidateIds = videoIds;
+            }
 
-          if (chosenItem && chosenItem.id?.videoId) {
-            const videoId = chosenItem.id.videoId;
-            const title = chosenItem.snippet?.title || cleanQuery;
-            const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-            const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-            console.log(`⚡ [Music-Resolve-Fast] YouTube Data API resolved verified playable "${title}" (${videoId}) in ${elapsed}s!`);
-            
-            const resultObj = {
-              title,
-              vid_id: videoId,
-              link: videoUrl,
-              stream_url: videoUrl
-            };
-            return res.json({
-              ok: true,
-              source: "youtube_api_v3",
-              ...resultObj,
-              elapsed_seconds: Number(elapsed)
+            // Parallel extraction: race top 3 candidates to return direct playable audio stream immediately!
+            const extractionPromises = candidateIds.slice(0, 3).map(async (vId) => {
+              const streamData = await extractDirectAudioStream(vId);
+              if (!streamData?.stream_url) throw new Error(`Extraction failed for ${vId}`);
+              const item = items.find(it => it.id?.videoId === vId);
+              return {
+                vid_id: vId,
+                title: streamData.title || item?.snippet?.title || cleanQuery,
+                stream_url: streamData.stream_url,
+                source_extractor: streamData.source_extractor
+              };
             });
+
+            try {
+              const winner = await Promise.any(extractionPromises);
+              const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+              console.log(`⚡ [Music-Resolve-Fast] YouTube direct audio stream resolved for "${winner.title}" (${winner.vid_id}) via ${winner.source_extractor} in ${elapsed}s!`);
+              return res.json({
+                ok: true,
+                source: "youtube_api_v3_stream",
+                title: winner.title,
+                vid_id: winner.vid_id,
+                link: `https://www.youtube.com/watch?v=${winner.vid_id}`,
+                stream_url: winner.stream_url,
+                elapsed_seconds: Number(elapsed)
+              });
+            } catch (extErr) {
+              console.log(`[Music-Resolve-Fast] Candidate direct extraction failed, falling through to JioSaavn/ytSearch...`);
+            }
           }
         } else {
           const errText = await ytResp.text().catch(() => "");
@@ -1791,25 +1855,49 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
       console.log(`[Music-Resolve-Fast] Saavn primary resolution notice: ${e.message}`);
     }
 
-    // ── Strategy 3: Fast Scraper Fallback via yt-search (no key needed, fast) ──
+    // ── Strategy 3: Fast Parallel yt-search + Direct Cloud Audio Extraction ──
     const search = await ytSearch(cleanQuery);
-    const candidateVideos = search?.videos?.slice(0, 3) || [];
+    const candidateVideos = (search?.videos || []).slice(0, 6);
     if (candidateVideos.length > 0) {
+      // Race extraction in parallel across the yt-search results
+      try {
+        const winner = await Promise.any(candidateVideos.map(async (v) => {
+          const streamData = await extractDirectAudioStream(v.videoId);
+          if (!streamData?.stream_url) throw new Error(`Extract failed for ${v.videoId}`);
+          return {
+            title: streamData.title || v.title,
+            vid_id: v.videoId,
+            stream_url: streamData.stream_url,
+            source_extractor: streamData.source_extractor
+          };
+        }));
+
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+        console.log(`⚡ [Music-Resolve-Fast] yt-search parallel direct stream resolved "${winner.title}" (${winner.vid_id}) via ${winner.source_extractor} in ${elapsed}s`);
+
+        return res.json({
+          ok: true,
+          source: "youtube_direct_stream",
+          title: winner.title,
+          vid_id: winner.vid_id,
+          link: `https://www.youtube.com/watch?v=${winner.vid_id}`,
+          stream_url: winner.stream_url,
+          elapsed_seconds: Number(elapsed)
+        });
+      } catch (raceErr) {
+        console.log(`[Music-Resolve-Fast] Parallel extraction across yt-search candidates failed.`);
+      }
+
+      // If extraction completely failed on all candidates, return first video watch link as fallback
       const chosenVideo = candidateVideos[0];
       const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-      console.log(`[Music-Resolve-Fast] yt-search fallback resolved "${chosenVideo.title}" in ${elapsed}s`);
-
-      const resultObj = {
-        title: chosenVideo.title,
-        vid_id: chosenVideo.videoId,
-        link: chosenVideo.url,
-        stream_url: chosenVideo.url
-      };
-
       return res.json({
         ok: true,
         source: "youtube_search_fallback",
-        ...resultObj,
+        title: chosenVideo.title,
+        vid_id: chosenVideo.videoId,
+        link: chosenVideo.url,
+        stream_url: chosenVideo.url,
         elapsed_seconds: Number(elapsed)
       });
     }
