@@ -1631,28 +1631,104 @@ homeRouter.post("/device/:slug/update-status", async (req, res) => {
 });
 
 
+// In-memory cache for YouTube Data API searches (query -> { title, vid_id, link, stream_url })
+const youtubeSearchCache = new Map();
+
 // ⚡ High-speed server-side music stream resolution for Pi Zero W:
-// Uses ultra-fast direct CDN audio resolution (<0.3s) with multi-source fallback
+// Priority:
+// 1. YouTube Data API v3 (if YOUTUBE_API_KEY/YT_API_KEY configured) with in-memory caching
+// 2. Ultra-fast direct JioSaavn CDN (<0.25s, no bot-blocks, crystal clear 320kbps MP3)
+// 3. Resilient yt-search scraper fallback
 homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
   const t0 = Date.now();
   try {
     const slug = normalizeSlug(req.params.slug);
-    const query = String(req.body?.query || req.body?.prompt || "").trim();
-    if (!query) return res.status(400).json({ error: "query required" });
+    const rawQuery = String(req.body?.query || req.body?.prompt || "").trim();
+    if (!rawQuery) return res.status(400).json({ error: "query required" });
 
     deviceLastSeen.set(slug, Date.now());
-    console.log(`[Music-Resolve-Fast] Resolving stream for: "${query}" (device: ${slug})...`);
 
-    // ── Strategy 1: Ultra-Fast Direct JioSaavn CDN (<0.25s, no bot-blocks, crystal clear 320kbps MP3) ──
+    // Clean extraneous filler phrases like "play", "on youtube", "song"
+    const cleanQuery = rawQuery
+      .replace(/\b(play|on youtube|from youtube|on spotify|from spotify)\b/gi, "")
+      .replace(/\b(song|track)\b$/gi, "")
+      .trim() || rawQuery;
+
+    console.log(`[Music-Resolve-Fast] Resolving stream for: "${cleanQuery}" (device: ${slug})...`);
+
+    // ── Check Cache First ──
+    const cacheKey = cleanQuery.toLowerCase();
+    if (youtubeSearchCache.has(cacheKey)) {
+      const cached = youtubeSearchCache.get(cacheKey);
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+      console.log(`⚡ [Music-Resolve-Fast] Cache hit for "${cached.title}" in ${elapsed}s!`);
+      return res.json({
+        ok: true,
+        source: "cache",
+        ...cached,
+        elapsed_seconds: Number(elapsed)
+      });
+    }
+
+    // ── Strategy 1: Official YouTube Data API v3 (Ultra-Reliable, Google Cloud Key) ──
+    const ytApiKey = process.env.YOUTUBE_API_KEY || process.env.YT_API_KEY;
+    if (ytApiKey) {
+      try {
+        console.log(`[Music-Resolve-Fast] Querying YouTube Data API v3 for: "${cleanQuery}"...`);
+        const ytApiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=1&q=${encodeURIComponent(cleanQuery)}&key=${ytApiKey}`;
+        const ytResp = await fetch(ytApiUrl, { signal: AbortSignal.timeout(4000) });
+        if (ytResp.ok) {
+          const ytData = await ytResp.json();
+          if (ytData.items && ytData.items.length > 0) {
+            const item = ytData.items[0];
+            const videoId = item.id?.videoId;
+            const title = item.snippet?.title || cleanQuery;
+            if (videoId) {
+              const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+              const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+              console.log(`⚡ [Music-Resolve-Fast] YouTube Data API resolved "${title}" (${videoId}) in ${elapsed}s!`);
+              
+              const resultObj = {
+                title,
+                vid_id: videoId,
+                link: videoUrl,
+                stream_url: videoUrl
+              };
+              // Cache query result
+              youtubeSearchCache.set(cacheKey, resultObj);
+              if (youtubeSearchCache.size > 500) {
+                const firstKey = youtubeSearchCache.keys().next().value;
+                youtubeSearchCache.delete(firstKey);
+              }
+
+              return res.json({
+                ok: true,
+                source: "youtube_api_v3",
+                ...resultObj,
+                elapsed_seconds: Number(elapsed)
+              });
+            }
+          }
+        } else {
+          const errText = await ytResp.text().catch(() => "");
+          console.log(`[Music-Resolve-Fast] YouTube Data API returned status ${ytResp.status}: ${errText.slice(0, 150)}`);
+        }
+      } catch (e) {
+        console.log(`[Music-Resolve-Fast] YouTube Data API notice: ${e.message}`);
+      }
+    }
+
+    // ── Strategy 2: Ultra-Fast Direct JioSaavn CDN (<0.25s, crystal clear 320kbps MP3) ──
     try {
-      const searchUrl = `https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=12&p=1&q=${encodeURIComponent(query)}`;
-      const sResp = await fetch(searchUrl, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3500) });
+      const saavnSearchQuery = cleanQuery.replace(/\b(song|track|music|audio)\b/gi, "").trim() || cleanQuery;
+      const searchUrl = `https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=12&p=1&q=${encodeURIComponent(saavnSearchQuery)}`;
+      const sResp = await fetch(searchUrl, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3000) });
       if (sResp.ok) {
         const sData = await sResp.json();
         const results = sData?.results || [];
         if (results.length > 0) {
-          // Smart Relevance Ranking: pick exact song title and penalize ambient / study / lofi filler
-          const queryWords = query.toLowerCase().split(/\s+/).filter(w => !["song", "the", "a", "an", "on", "play"].includes(w));
+          // Smart Relevance Ranking: require song title to match query keywords
+          const queryWords = saavnSearchQuery.toLowerCase().split(/\s+/).filter(w => !["the", "a", "an", "on", "play", "to", "start", "today"].includes(w));
           const scored = results.map(r => {
             const songLower = (r.song || "").toLowerCase();
             const artistLower = (r.primary_artists || "").toLowerCase();
@@ -1670,7 +1746,7 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
           });
           scored.sort((a, b) => b.score - a.score);
 
-          const top = scored.find(s => s.encrypted_media_url) || scored[0];
+          const top = scored.find(s => s.encrypted_media_url && s.score >= 3);
           if (top && top.encrypted_media_url) {
             const key = CryptoJS.enc.Utf8.parse("38346591");
             const dec = CryptoJS.DES.decrypt({ ciphertext: CryptoJS.enc.Base64.parse(top.encrypted_media_url) }, key, {
@@ -1679,7 +1755,6 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
             });
             const rawUrl = dec.toString(CryptoJS.enc.Utf8);
             if (rawUrl && rawUrl.startsWith("http")) {
-              // Saavn stores audio files as .mp4 container (AAC audio codec), replacing with .mp3 caused 404!
               const hqUrl = rawUrl.replace("_96.", "_320.");
               const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
               console.log(`⚡ [Music-Resolve-Fast] JioSaavn CDN resolved "${top.song}" in ${elapsed}s!`);
@@ -1698,42 +1773,31 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
       console.log(`[Music-Resolve-Fast] Saavn primary resolution notice: ${e.message}`);
     }
 
-    // ── Strategy 2: YouTube Fallback with multi-candidate resilience ──
-    const search = await ytSearch(query);
-    const candidateVideos = search?.videos?.slice(0, 4) || [];
-    if (candidateVideos.length === 0) {
-      return res.status(404).json({ error: "No video found" });
+    // ── Strategy 3: Fast Scraper Fallback via yt-search (no key needed, fast) ──
+    const search = await ytSearch(cleanQuery);
+    const candidateVideos = search?.videos?.slice(0, 3) || [];
+    if (candidateVideos.length > 0) {
+      const chosenVideo = candidateVideos[0];
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+      console.log(`[Music-Resolve-Fast] yt-search fallback resolved "${chosenVideo.title}" in ${elapsed}s`);
+
+      const resultObj = {
+        title: chosenVideo.title,
+        vid_id: chosenVideo.videoId,
+        link: chosenVideo.url,
+        stream_url: chosenVideo.url
+      };
+      youtubeSearchCache.set(cacheKey, resultObj);
+
+      return res.json({
+        ok: true,
+        source: "youtube_search_fallback",
+        ...resultObj,
+        elapsed_seconds: Number(elapsed)
+      });
     }
 
-    let streamUrl = null;
-    let chosenVideo = candidateVideos[0];
-
-    for (const v of candidateVideos) {
-      try {
-        const info = await ytdlInstance.getInfo(v.url);
-        const audioFormats = info.formats.filter(f => !f.hasVideo && f.hasAudio);
-        if (audioFormats && audioFormats.length > 0 && audioFormats[0].url) {
-          streamUrl = audioFormats[0].url;
-          chosenVideo = v;
-          break;
-        }
-      } catch (e) {
-        console.log(`[Music-Resolve-Fast] Candidate ${v.videoId} notice: ${e.message}`);
-      }
-    }
-
-    const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-    console.log(`[Music-Resolve-Fast] Resolved "${chosenVideo.title}" in ${elapsed}s`);
-
-    return res.json({
-      ok: true,
-      source: "youtube_stream",
-      title: chosenVideo.title,
-      vid_id: chosenVideo.videoId,
-      link: chosenVideo.url,
-      stream_url: streamUrl || chosenVideo.url,
-      elapsed_seconds: Number(elapsed)
-    });
+    return res.status(404).json({ error: "No video found" });
   } catch (err) {
     console.error("[Music-Resolve-Fast] Error:", err);
     return res.status(500).json({ error: String(err) });
