@@ -1658,23 +1658,61 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
       try {
         console.log(`[Music-Resolve-Fast] Querying YouTube Data API v3 for: "${cleanQuery}"...`);
         // Filter out geo-locked/unavailable videos by enforcing regionCode=IN, videoSyndicated=true, videoEmbeddable=true
-        const ytApiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&regionCode=IN&videoEmbeddable=true&videoSyndicated=true&maxResults=5&q=${encodeURIComponent(cleanQuery)}&key=${ytApiKey}`;
+        const ytApiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&regionCode=IN&videoEmbeddable=true&videoSyndicated=true&maxResults=8&q=${encodeURIComponent(cleanQuery)}&key=${ytApiKey}`;
         const ytResp = await fetch(ytApiUrl, { signal: AbortSignal.timeout(4000) });
         if (ytResp.ok) {
           const ytData = await ytResp.json();
           const items = ytData.items || [];
-          // Filter out explicitly geo-blocked titles (e.g. UK-only or broadcast dubs)
-          const validItem = items.find(it => {
-            const titleLower = (it.snippet?.title || "").toLowerCase();
-            return !titleLower.startsWith("uk:") && !titleLower.includes("[full episode]");
-          }) || items[0];
+          const videoIds = items.map(it => it.id?.videoId).filter(Boolean);
 
-          if (validItem && validItem.id?.videoId) {
-            const videoId = validItem.id.videoId;
-            const title = validItem.snippet?.title || cleanQuery;
+          let chosenItem = null;
+          if (videoIds.length > 0) {
+            // Check contentDetails to strictly filter out region restrictions
+            try {
+              const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,status&id=${videoIds.join(",")}&key=${ytApiKey}`;
+              const dResp = await fetch(detailsUrl, { signal: AbortSignal.timeout(3000) });
+              if (dResp.ok) {
+                const dData = await dResp.json();
+                const videoDetailsMap = new Map((dData.items || []).map(v => [v.id, v]));
+
+                for (const it of items) {
+                  const vId = it.id?.videoId;
+                  const details = videoDetailsMap.get(vId);
+                  const rr = details?.contentDetails?.regionRestriction;
+                  const blocked = rr?.blocked || [];
+                  const allowed = rr?.allowed || null;
+                  const embeddable = details?.status?.embeddable !== false;
+
+                  // Must be playable in India ('IN') and not blocked in India
+                  if (blocked.includes("IN")) continue;
+                  if (allowed && !allowed.includes("IN")) continue;
+                  if (!embeddable) continue;
+
+                  const titleLower = (it.snippet?.title || "").toLowerCase();
+                  if (titleLower.startsWith("uk:") || titleLower.includes("[full episode]")) continue;
+
+                  chosenItem = it;
+                  break;
+                }
+              }
+            } catch (e) {
+              console.log(`[Music-Resolve-Fast] Region details check notice: ${e.message}`);
+            }
+          }
+
+          if (!chosenItem && items.length > 0) {
+            chosenItem = items.find(it => {
+              const t = (it.snippet?.title || "").toLowerCase();
+              return !t.startsWith("uk:") && !t.includes("[full episode]");
+            }) || items[0];
+          }
+
+          if (chosenItem && chosenItem.id?.videoId) {
+            const videoId = chosenItem.id.videoId;
+            const title = chosenItem.snippet?.title || cleanQuery;
             const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
             const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-            console.log(`⚡ [Music-Resolve-Fast] YouTube Data API resolved "${title}" (${videoId}) in ${elapsed}s!`);
+            console.log(`⚡ [Music-Resolve-Fast] YouTube Data API resolved verified playable "${title}" (${videoId}) in ${elapsed}s!`);
             
             const resultObj = {
               title,
