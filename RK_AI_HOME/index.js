@@ -1,4 +1,5 @@
-import ytdl from '@distube/ytdl-core';
+import { Ytdl } from '@distube/ytdl-core';
+const ytdlInstance = new Ytdl();
 import express from "express";
 import { HfInference } from "@huggingface/inference";
 import { GoogleGenAI } from "@google/genai";
@@ -1648,11 +1649,11 @@ homeRouter.post("/device/:slug/music/resolve", async (req, res) => {
       return res.status(404).json({ error: "No video found" });
     }
 
-    // 2. Instant stream extraction with pre-imported ytdl
+    // 2. Instant stream extraction with pre-imported ytdlInstance
     let streamUrl = null;
     try {
-      const info = await ytdl.getInfo(video.url);
-      const audioFormats = ytdl.filterFormats(info.formats, "audioonly");
+      const info = await ytdlInstance.getInfo(video.url);
+      const audioFormats = info.formats.filter(f => !f.hasVideo && f.hasAudio);
       if (audioFormats && audioFormats.length > 0) {
         streamUrl = audioFormats[0].url;
       }
@@ -1737,8 +1738,8 @@ homeRouter.post("/device/:slug/spotify/resolve", async (req, res) => {
 
     let streamUrl = null;
     try {
-      const info = await ytdl.getInfo(video.url);
-      const audioFormats = ytdl.filterFormats(info.formats, "audioonly");
+      const info = await ytdlInstance.getInfo(video.url);
+      const audioFormats = info.formats.filter(f => !f.hasVideo && f.hasAudio);
       if (audioFormats && audioFormats.length > 0) {
         streamUrl = audioFormats[0].url;
       }

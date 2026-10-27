@@ -1,5 +1,6 @@
 // musicPlayer.js
-import ytdl from "@distube/ytdl-core";
+import { Ytdl } from "@distube/ytdl-core";
+const ytdl = new Ytdl();
 import ytSearch from "yt-search";
 import fs from "fs";
 import path from "path";
