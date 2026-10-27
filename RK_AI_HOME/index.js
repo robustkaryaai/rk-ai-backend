@@ -1636,14 +1636,16 @@ homeRouter.post("/device/:slug/update-status", async (req, res) => {
 // Helper to extract direct audio stream URL on the server (sub-second Ytdl + yt-dlp CLI fallback)
 function getStreamFromYtDlpCli(videoId) {
   return new Promise((resolve) => {
+    const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const proc = spawn("yt-dlp", [
-      "--force-ipv4",
-      "-f", "bestaudio[ext=m4a]/bestaudio",
+      "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
       "-g",
       "--no-playlist",
       "--no-warnings",
-      "--socket-timeout", "6",
-      `https://www.youtube.com/watch?v=${videoId}`
+      "--geo-bypass",
+      "--socket-timeout", "10",
+      "--extractor-retries", "3",
+      ytUrl,
     ]);
     let stdout = "";
     proc.stdout.on("data", d => stdout += d.toString());
