@@ -1836,15 +1836,6 @@ homeRouter.post("/device/:slug/spotify/resolve", async (req, res) => {
     const video = search?.videos?.[0];
     if (!video) return res.status(404).json({ error: "No track found" });
 
-    let streamUrl = null;
-    try {
-      const info = await ytdlInstance.getInfo(video.url);
-      const audioFormats = info.formats.filter(f => !f.hasVideo && f.hasAudio);
-      if (audioFormats && audioFormats.length > 0) {
-        streamUrl = audioFormats[0].url;
-      }
-    } catch (e) {}
-
     const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
     return res.json({
       ok: true,
@@ -1852,7 +1843,7 @@ homeRouter.post("/device/:slug/spotify/resolve", async (req, res) => {
       title: video.title,
       vid_id: video.videoId,
       link: video.url,
-      stream_url: streamUrl || video.url,
+      stream_url: video.url,
       elapsed_seconds: Number(elapsed)
     });
   } catch (err) {
